@@ -1,0 +1,1 @@
+{"model": "gpt-5.5", "input": [{"role": "user", "content": [{"type": "input_text", "text": "Hello from phone curl"}]}], "tools": [{"type": "web_search_preview"}], "tool_choice": "auto", "reasoning": {"effort": "xhigh"}, "store": false, "max_output_tokens": 64, "stream": false}

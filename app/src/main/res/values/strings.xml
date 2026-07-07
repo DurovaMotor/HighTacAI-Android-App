@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">HighTac AI</string>
+    <string name="mode_advisor">顾问</string>
+    <string name="mode_price">查价</string>
+    <string name="price_search_hint">输入编码 / 名称 / 车型</string>
+    <string name="price_system">查价系统</string>
+    <string name="price_loading">正在查价...</string>
+    <string name="price_status_loading">查价中</string>
+    <string name="price_empty_tip">输入编码、名称或车型开始查价。</string>
+    <string name="price_no_results">未找到匹配结果</string>
+    <string name="hightac_connected">HighTac AI 已连接</string>
+    <string name="hightac_key_missing">HighTac AI 密钥缺失</string>
+    <string name="image_processing_failed">图片处理失败，请换一张图片重试。</string>
+</resources>
