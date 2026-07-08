@@ -18,7 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.deepchatdemo.light.domain.LightBinding
 import com.example.deepchatdemo.price.PriceFilterColumn
+import com.example.deepchatdemo.price.PriceLookupResult
 import com.example.deepchatdemo.price.PriceLookupUiState
 
 @Composable
@@ -31,7 +33,11 @@ fun PriceLookupScreen(
     onRemoveFilter: (String) -> Unit,
     onStartSearch: () -> Unit,
     onRefreshSearch: () -> Unit,
-    onRetrySearch: () -> Unit
+    onRetrySearch: () -> Unit,
+    lightBindingForCode: (String) -> LightBinding?,
+    onBindLight: (PriceLookupResult) -> Unit,
+    onTurnOnLight: (PriceLookupResult) -> Unit,
+    onTurnOffLight: (PriceLookupResult) -> Unit
 ) {
     Column(
         modifier = modifier.fillMaxSize(),
@@ -42,7 +48,11 @@ fun PriceLookupScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            onRetrySearch = onRetrySearch
+            onRetrySearch = onRetrySearch,
+            lightBindingForCode = lightBindingForCode,
+            onBindLight = onBindLight,
+            onTurnOnLight = onTurnOnLight,
+            onTurnOffLight = onTurnOffLight
         )
         Spacer(Modifier.height(12.dp))
         PriceFilterArea(
@@ -61,7 +71,11 @@ fun PriceLookupScreen(
 private fun PriceResultContent(
     uiState: PriceLookupUiState,
     modifier: Modifier = Modifier,
-    onRetrySearch: () -> Unit
+    onRetrySearch: () -> Unit,
+    lightBindingForCode: (String) -> LightBinding?,
+    onBindLight: (PriceLookupResult) -> Unit,
+    onTurnOnLight: (PriceLookupResult) -> Unit,
+    onTurnOffLight: (PriceLookupResult) -> Unit
 ) {
     Box(
         modifier = modifier.fillMaxWidth(),
@@ -102,7 +116,13 @@ private fun PriceResultContent(
                         )
                     }
                     items(uiState.results, key = { it.id }) { item ->
-                        PriceResultCard(item = item)
+                        PriceResultCard(
+                            item = item,
+                            lightBinding = lightBindingForCode(item.code),
+                            onBindLight = { onBindLight(item) },
+                            onTurnOnLight = { onTurnOnLight(item) },
+                            onTurnOffLight = { onTurnOffLight(item) }
+                        )
                     }
                 }
             }

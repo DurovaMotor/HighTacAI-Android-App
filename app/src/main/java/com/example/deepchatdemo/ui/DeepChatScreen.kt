@@ -118,6 +118,8 @@ import com.example.deepchatdemo.chat.ChatRole
 import com.example.deepchatdemo.chat.ChatViewModel
 import com.example.deepchatdemo.config.ReasoningEffort
 import com.example.deepchatdemo.price.PriceLookupViewModel
+import com.example.deepchatdemo.ui.light.LightFindingScreen
+import com.example.deepchatdemo.ui.light.LightFindingViewModel
 import com.example.deepchatdemo.ui.price.PriceLookupScreen
 import com.example.deepchatdemo.utils.ImageUtils
 import kotlinx.coroutines.Dispatchers
@@ -129,7 +131,8 @@ import kotlin.math.roundToInt
 
 private enum class AppMode {
     Advisor,
-    PriceLookup
+    PriceLookup,
+    LightFinding
 }
 
 @Composable
@@ -140,6 +143,9 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
     )
     val priceViewModel: PriceLookupViewModel = viewModel(
         factory = PriceLookupViewModel.factory(context)
+    )
+    val lightFindingViewModel: LightFindingViewModel = viewModel(
+        factory = LightFindingViewModel.factory(context)
     )
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -206,13 +212,16 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
                         onDragStart = { modeDragAmount = 0f },
                         onDragCancel = { modeDragAmount = 0f },
                         onDragEnd = {
-                            when {
-                                modeDragAmount <= -modeSwipeThreshold && selectedMode == AppMode.Advisor -> {
-                                    selectedMode = AppMode.PriceLookup
+                            val modes = AppMode.entries
+                            val currentIndex = selectedMode.ordinal
+                            selectedMode = when {
+                                modeDragAmount <= -modeSwipeThreshold -> {
+                                    modes.getOrElse(currentIndex + 1) { selectedMode }
                                 }
-                                modeDragAmount >= modeSwipeThreshold && selectedMode == AppMode.PriceLookup -> {
-                                    selectedMode = AppMode.Advisor
+                                modeDragAmount >= modeSwipeThreshold -> {
+                                    modes.getOrElse(currentIndex - 1) { selectedMode }
                                 }
+                                else -> selectedMode
                             }
                             modeDragAmount = 0f
                         },
@@ -294,7 +303,48 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
                             onRemoveFilter = priceViewModel::removeFilter,
                             onStartSearch = priceViewModel::startSearch,
                             onRefreshSearch = priceViewModel::refreshSearch,
-                            onRetrySearch = priceViewModel::retrySearch
+                            onRetrySearch = priceViewModel::retrySearch,
+                            lightBindingForCode = lightFindingViewModel::bindingForCode,
+                            onBindLight = { item ->
+                                lightFindingViewModel.prefillFromPrice(
+                                    itemCode = item.code,
+                                    itemName = item.nameCn.ifBlank { item.nameEn }
+                                )
+                                selectedMode = AppMode.LightFinding
+                            },
+                            onTurnOnLight = { item ->
+                                lightFindingViewModel.lightByItemCode(item.code)
+                                selectedMode = AppMode.LightFinding
+                            },
+                            onTurnOffLight = { item ->
+                                lightFindingViewModel.turnOffByItemCode(item.code)
+                                selectedMode = AppMode.LightFinding
+                            }
+                        )
+                    }
+                    AppMode.LightFinding -> {
+                        LightFindingScreen(
+                            uiState = lightFindingViewModel.uiState,
+                            modifier = Modifier.fillMaxSize(),
+                            onStationIdChange = lightFindingViewModel::onStationIdChange,
+                            onBrokerHostChange = lightFindingViewModel::onBrokerHostChange,
+                            onBrokerPortChange = lightFindingViewModel::onBrokerPortChange,
+                            onUsernameChange = lightFindingViewModel::onUsernameChange,
+                            onPasswordChange = lightFindingViewModel::onPasswordChange,
+                            onItemCodeChange = lightFindingViewModel::onItemCodeChange,
+                            onTagIdChange = lightFindingViewModel::onTagIdChange,
+                            onSaveAndConnect = lightFindingViewModel::saveAndConnect,
+                            onDisconnect = lightFindingViewModel::disconnect,
+                            onToggleSettings = lightFindingViewModel::toggleSettings,
+                            onBindCurrent = lightFindingViewModel::bindCurrent,
+                            onLightCurrentItem = lightFindingViewModel::lightByCurrentItem,
+                            onLightTag = { lightFindingViewModel.lightByTagId() },
+                            onTurnOffCurrentItem = lightFindingViewModel::turnOffByCurrentItem,
+                            onTurnOffAll = lightFindingViewModel::turnOffAllBound,
+                            onSelectColor = lightFindingViewModel::selectColor,
+                            onBeepChange = lightFindingViewModel::setBeep,
+                            onFlashingChange = lightFindingViewModel::setFlashing,
+                            onDurationChange = lightFindingViewModel::setDuration
                         )
                     }
                 }
@@ -1261,7 +1311,7 @@ private fun ModeSwitch(
 ) {
     GlassPanel(
         modifier = Modifier
-            .width(208.dp)
+            .width(282.dp)
             .height(46.dp),
         shape = RoundedCornerShape(26.dp),
         contentPadding = PaddingValues(4.dp),
@@ -1285,6 +1335,13 @@ private fun ModeSwitch(
                 statusColor = Color(0xFF20C657),
                 modifier = Modifier.weight(1f),
                 onClick = { onModeSelected(AppMode.PriceLookup) }
+            )
+            ModeSwitchOption(
+                text = "寻物",
+                selected = selectedMode == AppMode.LightFinding,
+                statusColor = Color(0xFF39C8E6),
+                modifier = Modifier.weight(1f),
+                onClick = { onModeSelected(AppMode.LightFinding) }
             )
         }
     }

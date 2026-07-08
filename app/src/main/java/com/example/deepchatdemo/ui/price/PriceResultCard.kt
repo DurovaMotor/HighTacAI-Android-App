@@ -2,6 +2,7 @@ package com.example.deepchatdemo.ui.price
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -30,12 +31,17 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import com.example.deepchatdemo.light.domain.LightBinding
 import com.example.deepchatdemo.price.PriceLookupResult
 
 @Composable
 internal fun PriceResultCard(
     item: PriceLookupResult,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    lightBinding: LightBinding? = null,
+    onBindLight: () -> Unit = {},
+    onTurnOnLight: () -> Unit = {},
+    onTurnOffLight: () -> Unit = {}
 ) {
     PriceGlassPanel(
         modifier = modifier.fillMaxWidth(),
@@ -109,6 +115,44 @@ internal fun PriceResultCard(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
+
+            Spacer(Modifier.height(10.dp))
+            if (lightBinding == null) {
+                PriceGradientButton(
+                    text = "扫码绑定灯条",
+                    active = item.code.isNotBlank(),
+                    enabled = item.code.isNotBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = onBindLight
+                )
+            } else {
+                Text(
+                    text = "已绑定：${lightBinding.tagId}",
+                    color = PriceLookupColors.Muted,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    PriceGradientButton(
+                        text = "亮灯",
+                        modifier = Modifier.weight(1f),
+                        onClick = onTurnOnLight
+                    )
+                    PriceGradientButton(
+                        text = "灭灯",
+                        active = false,
+                        modifier = Modifier.weight(1f),
+                        onClick = onTurnOffLight
+                    )
+                }
+            }
         }
     }
 }
