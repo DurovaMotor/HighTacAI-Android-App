@@ -314,11 +314,9 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
                             },
                             onTurnOnLight = { item ->
                                 lightFindingViewModel.lightByItemCode(item.code)
-                                selectedMode = AppMode.LightFinding
                             },
                             onTurnOffLight = { item ->
                                 lightFindingViewModel.turnOffByItemCode(item.code)
-                                selectedMode = AppMode.LightFinding
                             }
                         )
                     }
