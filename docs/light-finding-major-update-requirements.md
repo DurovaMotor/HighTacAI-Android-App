@@ -76,7 +76,7 @@ flowchart LR
 基于 2026-07-08 的需求确认，第一版范围收敛如下：
 
 - 不做 Kaicom 平台账号登录，不做租户、服务到期、员工权限等平台前置流程。
-- MQTT broker 初期由现场笔记本电脑搭建，App 与基站连接同一 broker。
+- MQTT broker 初期先部署在当前这台开发电脑上，App 与基站连接同一 broker。
 - 第一版默认明文 TCP + 用户名密码，不要求 TLS；若后续进入跨公网或客户生产网络，再升级 TLS/VPN/内网隔离策略。
 - 现场设备是普通 Android 手机，不依赖 Kaicom PDA、USB 控制器或私有扫码 SDK。
 - 灯条类型只有夹子灯条，`Time` 按夹子灯条上限 36 档、180 秒处理。
@@ -297,13 +297,13 @@ TLS 是 Transport Layer Security，通俗讲就是网络连接的加密层，HTT
 
 第一版建议：
 
-- 现场笔记本 broker + 同一局域网试点时，先使用明文 TCP + 用户名密码，降低调试成本。
+- 当前开发电脑 broker + 同一局域网试点时，先使用明文 TCP + 用户名密码，降低调试成本。
 - broker 只绑定现场内网网卡或受控热点，避免暴露到公网。
 - 后续跨公网、客户生产网络、多人长期使用时，再评估 TLS、VPN、Cloudflare Tunnel 或内网专线。
 
 基站配置页判断：
 
-- 基础功能不依赖自研基站配置网站。只要用基站内置管理页把 MQTT 服务器地址、端口、账号、密码配置到笔记本 broker，App 就能通过 MQTT 跑通点亮/灭灯/心跳/回执闭环。
+- 基础功能不依赖自研基站配置网站。只要用基站内置管理页把 MQTT 服务器地址、端口、账号、密码配置到当前开发电脑上的 broker，App 就能通过 MQTT 跑通点亮/灭灯/心跳/回执闭环。
 - “逆向基站配置网站并部署到 Cloudflare Pages”不建议作为第一版主线。Cloudflare Pages 适合部署静态配置向导、操作说明、参数生成器，不适合直接替代基站内置管理页去修改 `http://192.168.172.173:8083/` 上的局域网设备配置。
 - 技术限制包括：Cloudflare Pages 页面运行在公网 HTTPS 域名下，浏览器直接访问局域网 HTTP 设备会遇到混合内容、CORS、Private Network Access、默认密码暴露等限制；Cloudflare 的服务器端也不能直接访问现场 `192.168.x.x` 私网地址，除非现场额外部署 Tunnel/代理。
 - 若后续确实要做低成本配置体验，优先做“配置向导网页”：告诉用户如何设置 PC IP、打开基站内置管理页、填写 broker 参数、重启和验证心跳；不要第一版做远程改基站配置。
@@ -672,7 +672,7 @@ MQTT 状态：
 
 ### 10.1 MVP 验收
 
-- 笔记本 MQTT broker 能被基站和普通 Android 手机同时连接。
+- 当前开发电脑上的 MQTT broker 能被基站和普通 Android 手机同时连接。
 - 能保存并恢复 broker + 基站配置。
 - 输入合法基站 SN 后，成功订阅 `/result` 和 `/heartbeat`。
 - 基站上线后 30 秒内展示在线和固件版本。
@@ -715,8 +715,8 @@ MQTT 状态：
 
 ### Milestone 0：技术 spike
 
-- 在笔记本电脑部署 MQTT broker，优先选 EMQX 或 Mosquitto，记录安装与启动步骤。
-- 验证 Android MQTT client 连接笔记本 broker。
+- 在当前开发电脑部署 MQTT broker，优先选 EMQX 或 Mosquitto，记录安装与启动步骤。
+- 验证 Android MQTT client 连接当前开发电脑上的 broker。
 - 用 MQTTX/EMQX 或现有 broker 模拟 `/estation/{ID}/heartbeat` 和 `/result`。
 - 用实物基站和 1-2 个夹子灯条完成真实点亮/灭灯 smoke test。
 - 完成协议模型单元测试。
@@ -756,7 +756,7 @@ MQTT 状态：
 ### 13.1 已确认决策
 
 1. 第一版不做 Kaicom 平台账号登录，HighTac App 自己维护本地绑定。
-2. MQTT broker 初期由笔记本电脑搭建，作为现场局域网 broker。
+2. MQTT broker 初期由当前开发电脑搭建，作为现场局域网 broker。
 3. 第一版不要求 TLS，先用明文 TCP + 用户名密码跑通；跨公网或生产长期部署再升级安全方案。
 4. 现场设备是普通 Android 手机。
 5. 第一版只支持夹子灯条。
@@ -767,9 +767,9 @@ MQTT 状态：
 
 ### 13.2 剩余待确认
 
-1. 笔记本 broker 优先选 EMQX 还是 Mosquitto；是否需要提供一键启动脚本。
-2. 笔记本与基站/手机的网络方式：同一 Wi-Fi、手机热点、网线 + 路由器，还是 PC 双网卡。
-3. broker 默认端口、用户名、密码和局域网 IP 如何写入现场 SOP。
+1. 当前开发电脑 broker 优先选 EMQX 还是 Mosquitto；是否需要提供一键启动脚本。
+2. 当前开发电脑与基站/手机的网络方式：同一 Wi-Fi、手机热点、网线 + 路由器，还是 PC 双网卡。
+3. broker 默认端口、用户名、密码和当前开发电脑局域网 IP 如何写入现场 SOP。
 4. 基站 SN 和首批灯条 ID 的实际样例，用于做真机测试用例。
 5. 价格查询结果中哪个字段作为“产品编码”与本地绑定表关联。
 6. 普通 Android 手机扫码方案：先用系统相机/手输，还是第一版集成 CameraX/ML Kit。
