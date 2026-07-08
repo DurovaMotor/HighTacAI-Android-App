@@ -20,6 +20,12 @@ class EStationProtocolTest {
     }
 
     @Test
+    fun scannedTagIdsCanOmitAd1PrefixBeforeValidation() {
+        assertEquals(TAG_ID, EStationValidators.normalizeScannedTagId("00000048f"))
+        assertEquals(TAG_ID, EStationValidators.normalizeScannedTagId(TAG_ID.lowercase()))
+    }
+
+    @Test
     fun topicsKeepLeadingSlashAndParseKnownKinds() {
         assertEquals("/estation/$STATION_ID/result", EStationTopics.resultTopic(STATION_ID))
         assertEquals("/estation/$STATION_ID/heartbeat", EStationTopics.heartbeatTopic(STATION_ID))

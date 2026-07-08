@@ -186,7 +186,7 @@ private fun StatusPanel(
                 Spacer(Modifier.width(8.dp))
                 StatusPill(
                     icon = Icons.Rounded.FlashOn,
-                    text = if (uiState.isStationOnline) "基站在线" else "等待心跳",
+                    text = if (uiState.isStationOnline) "基站在线" else "基站未上线",
                     color = if (uiState.isStationOnline) LightUiColors.Green else LightUiColors.Warning
                 )
                 Spacer(Modifier.weight(1f))
@@ -736,7 +736,7 @@ private fun MqttConnectionState.label(): String {
         MqttConnectionState.Idle -> "未连接"
         MqttConnectionState.Connecting -> "连接中"
         MqttConnectionState.Subscribing -> "订阅中"
-        MqttConnectionState.Ready -> "MQTT 就绪"
+        MqttConnectionState.Ready -> "Broker 已连"
         MqttConnectionState.Reconnecting -> "重连中"
         MqttConnectionState.Disconnected -> "已断开"
         is MqttConnectionState.Failed -> "连接失败"

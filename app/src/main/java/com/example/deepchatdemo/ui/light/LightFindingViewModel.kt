@@ -16,6 +16,7 @@ import com.example.deepchatdemo.light.domain.LightEvent
 import com.example.deepchatdemo.light.domain.LightStatus
 import com.example.deepchatdemo.light.domain.StationConfig
 import com.example.deepchatdemo.light.domain.batteryLevelFromRaw
+import com.example.deepchatdemo.light.mqtt.MqttBrokerEndpoint
 import com.example.deepchatdemo.light.mqtt.EStationMqttClient
 import com.example.deepchatdemo.light.mqtt.MqttConnectionConfig
 import com.example.deepchatdemo.light.mqtt.MqttConnectionState
@@ -80,6 +81,9 @@ class LightFindingViewModel(
             bindings = bindingRepository.getAll()
         )
         collectMqtt()
+        if (config.isUsable()) {
+            connectToBroker(config, "已读取上次 MQTT 配置，正在自动连接。")
+        }
     }
 
     fun onStationIdChange(value: String) {
@@ -154,25 +158,35 @@ class LightFindingViewModel(
                 uiState = uiState.copy(inputMessage = "基站 SN 格式应为 90A9F + 7 位十六进制字符。")
                 return
             }
-        val port = uiState.brokerPort.toIntOrNull()
-        if (uiState.brokerHost.isBlank() || port == null || port !in 1..65535) {
-            uiState = uiState.copy(inputMessage = "请填写可访问的 MQTT 地址和端口。")
+        val fallbackPort = uiState.brokerPort.toIntOrNull() ?: 1884
+        val endpoint = runCatching {
+            MqttBrokerEndpoint.parse(uiState.brokerHost, fallbackPort)
+        }.getOrElse { error ->
+            uiState = uiState.copy(inputMessage = error.message ?: "请填写可访问的 MQTT 地址和端口。")
             return
         }
 
         val config = StationConfig(
             stationId = stationId,
-            brokerHost = uiState.brokerHost,
-            brokerPort = port,
+            brokerHost = endpoint.host,
+            brokerPort = endpoint.port,
             username = uiState.username,
             password = uiState.password,
-            tlsEnabled = false
+            tlsEnabled = endpoint.tlsEnabled
         )
         configStore.saveConfig(config)
         addEvent("保存 MQTT 配置", "${config.brokerHost}:${config.brokerPort} / $stationId")
+        uiState = uiState.copy(
+            brokerHost = config.brokerHost,
+            brokerPort = config.brokerPort.toString()
+        )
+        connectToBroker(config, "正在连接 MQTT，并订阅基站心跳与回执。")
+    }
+
+    private fun connectToBroker(config: StationConfig, pendingMessage: String) {
         mqttClient.connect(
             MqttConnectionConfig(
-                stationId = stationId,
+                stationId = config.stationId,
                 host = config.brokerHost,
                 port = config.brokerPort,
                 username = config.username,
@@ -180,7 +194,7 @@ class LightFindingViewModel(
                 tlsEnabled = config.tlsEnabled
             )
         )
-        uiState = uiState.copy(inputMessage = "正在连接 MQTT，并订阅基站心跳与回执。")
+        uiState = uiState.copy(inputMessage = pendingMessage)
     }
 
     fun disconnect() {
@@ -281,6 +295,11 @@ class LightFindingViewModel(
             uiState = uiState.copy(inputMessage = "请先连接 MQTT。")
             return
         }
+        if (!uiState.isStationOnline) {
+            uiState = uiState.copy(inputMessage = "Broker 已连接，但还没有收到基站心跳。请先确认基站已连入 MQTT。")
+            addEvent("基站未在线", "Broker 已连接，等待 ${uiState.stationId} 心跳", warning = true)
+            return
+        }
         val result = runCatching { mqttClient.publishTask(task) }
         result.onSuccess {
             addEvent(eventTitle, "$eventDetail / 已发布")
@@ -294,7 +313,27 @@ class LightFindingViewModel(
     private fun collectMqtt() {
         viewModelScope.launch {
             mqttClient.connectionState.collectLatest { state ->
-                uiState = uiState.copy(connectionState = state)
+                val message = when (state) {
+                    MqttConnectionState.Ready -> {
+                        if (uiState.isStationOnline) {
+                            uiState.inputMessage
+                        } else {
+                            "Broker 已连接，暂未收到基站心跳；请检查基站 MQTT 地址、端口、账号密码和 TLS。"
+                        }
+                    }
+                    is MqttConnectionState.Failed -> "MQTT 连接失败：${state.message}"
+                    else -> uiState.inputMessage
+                }
+                uiState = uiState.copy(connectionState = state, inputMessage = message)
+                when (state) {
+                    MqttConnectionState.Ready -> {
+                        if (!uiState.isStationOnline) {
+                            addEvent("Broker 已连接", "等待基站 ${uiState.stationId} 心跳")
+                        }
+                    }
+                    is MqttConnectionState.Failed -> addEvent("MQTT 连接失败", state.message, warning = true)
+                    else -> Unit
+                }
             }
         }
         viewModelScope.launch {
@@ -330,6 +369,13 @@ class LightFindingViewModel(
                 addEvent("收到回执", result.toReadableMessage())
             }
         }
+        viewModelScope.launch {
+            mqttClient.messageIssues.collect { issue ->
+                val detail = "${issue.topic} / ${issue.message}"
+                uiState = uiState.copy(inputMessage = "收到 MQTT 消息但解析失败：${issue.message}")
+                addEvent("MQTT 消息异常", detail, warning = true)
+            }
+        }
     }
 
     private fun TaskResult.toReadableMessage(): String {
@@ -351,9 +397,10 @@ class LightFindingViewModel(
     }
 
     private fun validateTagIdOrShowMessage(value: String): String? {
-        return runCatching { EStationValidators.requireTagId(value) }
+        val normalized = EStationValidators.normalizeScannedTagId(value)
+        return runCatching { EStationValidators.requireTagId(normalized) }
             .getOrElse {
-                uiState = uiState.copy(inputMessage = "灯条 ID 格式应为 AD1 + 9 位十六进制字符。")
+                uiState = uiState.copy(inputMessage = "灯条 ID 格式应为 AD1 + 9 位十六进制字符，或直接扫 9 位灯条短码。")
                 null
             }
     }
@@ -384,4 +431,10 @@ class LightFindingViewModel(
             }
         }
     }
+}
+
+private fun StationConfig.isUsable(): Boolean {
+    return EStationValidators.isValidStationId(stationId) &&
+        brokerHost.isNotBlank() &&
+        brokerPort in 1..65535
 }

@@ -40,7 +40,77 @@ data class MqttConnectionConfig(
         get() {
             val scheme = if (tlsEnabled) "ssl" else "tcp"
             return "$scheme://${host.trim()}:$port"
+    }
+}
+
+data class MqttBrokerEndpoint(
+    val host: String,
+    val port: Int,
+    val tlsEnabled: Boolean
+) {
+    companion object {
+        fun parse(
+            hostInput: String,
+            fallbackPort: Int = 1884,
+            defaultTlsEnabled: Boolean = false
+        ): MqttBrokerEndpoint {
+            val trimmed = hostInput.trim()
+            require(trimmed.isNotBlank()) { "MQTT host is required." }
+            require(fallbackPort in 1..65535) { "Invalid MQTT port." }
+
+            var tlsEnabled = defaultTlsEnabled
+            var authority = trimmed
+            val schemeIndex = authority.indexOf("://")
+            if (schemeIndex >= 0) {
+                val scheme = authority.substring(0, schemeIndex).lowercase()
+                tlsEnabled = when (scheme) {
+                    "tcp", "mqtt" -> false
+                    "ssl", "mqtts" -> true
+                    else -> error("Unsupported MQTT scheme: $scheme.")
+                }
+                authority = authority.substring(schemeIndex + 3)
+            }
+
+            authority = authority.substringBefore('/').substringBefore('?').trim()
+            require(authority.isNotBlank()) { "MQTT host is required." }
+            require('@' !in authority) { "MQTT credentials must be entered separately." }
+
+            val (host, parsedPort) = splitHostAndPort(authority, fallbackPort)
+            require(host.isNotBlank()) { "MQTT host is required." }
+            require(parsedPort in 1..65535) { "Invalid MQTT port." }
+
+            return MqttBrokerEndpoint(
+                host = host,
+                port = parsedPort,
+                tlsEnabled = tlsEnabled
+            )
         }
+
+        private fun splitHostAndPort(authority: String, fallbackPort: Int): Pair<String, Int> {
+            if (authority.startsWith("[")) {
+                val closingBracket = authority.indexOf(']')
+                require(closingBracket > 1) { "Invalid MQTT host." }
+                val host = authority.substring(1, closingBracket)
+                val suffix = authority.substring(closingBracket + 1)
+                val port = if (suffix.startsWith(":")) {
+                    suffix.substring(1).toIntOrNull() ?: error("Invalid MQTT port.")
+                } else {
+                    fallbackPort
+                }
+                return host to port
+            }
+
+            val lastColon = authority.lastIndexOf(':')
+            if (lastColon > 0) {
+                val maybePort = authority.substring(lastColon + 1)
+                if (maybePort.all { it.isDigit() }) {
+                    return authority.substring(0, lastColon) to maybePort.toInt()
+                }
+            }
+
+            return authority to fallbackPort
+        }
+    }
 }
 
 sealed interface MqttConnectionState {
@@ -52,6 +122,12 @@ sealed interface MqttConnectionState {
     data object Disconnected : MqttConnectionState
     data class Failed(val message: String) : MqttConnectionState
 }
+
+data class MqttMessageIssue(
+    val topic: String,
+    val message: String,
+    val payloadPreview: String
+)
 
 class EStationMqttClient(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -67,6 +143,9 @@ class EStationMqttClient(
 
     private val _results = MutableSharedFlow<TaskResult>(extraBufferCapacity = 32)
     val results: SharedFlow<TaskResult> = _results
+
+    private val _messageIssues = MutableSharedFlow<MqttMessageIssue>(extraBufferCapacity = 32)
+    val messageIssues: SharedFlow<MqttMessageIssue> = _messageIssues
 
     fun connect(nextConfig: MqttConnectionConfig) {
         require(EStationValidators.isValidStationId(nextConfig.stationId)) {
@@ -183,10 +262,21 @@ class EStationMqttClient(
                         EStationTopics.heartbeatTopic(nextConfig.normalizedStationId) -> {
                             runCatching { EstationInfo.parse(payload, nextConfig.normalizedStationId) }
                                 .onSuccess { _heartbeats.emit(it) }
+                                .onFailure { emitMessageIssue(topic, payload, it) }
                         }
                         EStationTopics.resultTopic(nextConfig.normalizedStationId) -> {
                             runCatching { TaskResult.parse(payload, nextConfig.normalizedStationId) }
                                 .onSuccess { _results.emit(it) }
+                                .onFailure { emitMessageIssue(topic, payload, it) }
+                        }
+                        else -> {
+                            _messageIssues.emit(
+                                MqttMessageIssue(
+                                    topic = topic,
+                                    message = "Unexpected MQTT topic.",
+                                    payloadPreview = payload.preview()
+                                )
+                            )
                         }
                     }
                 }
@@ -195,4 +285,19 @@ class EStationMqttClient(
             override fun deliveryComplete(token: IMqttDeliveryToken?) = Unit
         }
     }
+
+    private suspend fun emitMessageIssue(topic: String, payload: String, error: Throwable) {
+        _messageIssues.emit(
+            MqttMessageIssue(
+                topic = topic,
+                message = error.message ?: "MQTT message parse failed.",
+                payloadPreview = payload.preview()
+            )
+        )
+    }
+}
+
+private fun String.preview(maxLength: Int = 240): String {
+    val compact = replace(Regex("\\s+"), " ").trim()
+    return if (compact.length <= maxLength) compact else compact.take(maxLength) + "..."
 }

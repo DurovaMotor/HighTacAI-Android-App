@@ -22,6 +22,15 @@ object EStationValidators {
         return tagId.trim().uppercase()
     }
 
+    fun normalizeScannedTagId(tagId: String): String {
+        val normalized = normalizeTagId(tagId)
+        return if (Regex("^[0-9A-F]{9}$").matches(normalized)) {
+            "AD1$normalized"
+        } else {
+            normalized
+        }
+    }
+
     fun isValidStationId(stationId: String): Boolean {
         return stationIdRegex.matches(stationId)
     }
