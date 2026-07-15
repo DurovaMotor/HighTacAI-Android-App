@@ -1,7 +1,7 @@
 # Mosquitto config for a native Windows install.
 # Replace the placeholder paths, or let start-mosquitto.ps1 generate this file.
 
-listener 1883 0.0.0.0
+listener 1884 0.0.0.0
 protocol mqtt
 
 allow_anonymous false

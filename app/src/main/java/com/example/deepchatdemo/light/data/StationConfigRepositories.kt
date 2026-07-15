@@ -1,6 +1,7 @@
 package com.example.deepchatdemo.light.data
 
 import com.example.deepchatdemo.light.domain.StationConfig
+import com.example.deepchatdemo.light.domain.SiteMqttDefaults
 import com.example.deepchatdemo.light.protocol.EStationValidators
 import java.io.File
 import org.json.JSONArray
@@ -127,7 +128,7 @@ class JsonFileStationConfigRepository(
         return StationConfig(
             stationId = optString("station_id"),
             alias = optionalString("alias").orEmpty(),
-            brokerHost = optString("broker_host"),
+            brokerHost = SiteMqttDefaults.resolveBrokerHost(optionalString("broker_host")),
             brokerPort = optInt("broker_port"),
             username = optString("username"),
             tlsEnabled = optBoolean("tls_enabled")

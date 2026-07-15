@@ -1,19 +1,28 @@
 # Windows 本机 MQTT Broker 部署说明
 
-日期：2026-07-08
+创建：2026-07-08
+
+现场网络更新：2026-07-15
 
 本说明用于当前 Windows 开发电脑给 HighTac 声光寻物 MVP 提供局域网 MQTT broker。当前选择 Eclipse Mosquitto，原因是安装轻、配置文件简单，适合先跑通 App + eStation 基站 + 夹子灯条闭环。
 
 ## 当前部署状态
 
-当前电脑已通过 `winget` 安装 Eclipse Mosquitto 2.1.2。
+当前电脑已通过 `winget` 安装 Eclipse Mosquitto 2.1.2。现场网络固定为：
 
 实际运行情况：
 
 | 项目 | 当前值 |
 | --- | --- |
-| 局域网 IPv4 | 以当前电脑实时查询为准；2026-07-08 当前旧笔记本为 `192.168.2.105` |
-| 项目 broker | `mqtt://<当前电脑局域网IP>:1884` |
+| 现场 Wi-Fi | `Durova-5G` |
+| 主路由器 | 中兴 `ZXHN G7615V2` |
+| LAN 网关 / 网段 | `192.168.1.1/24` |
+| 开发电脑 Wi-Fi MAC | `84:9E:56:07:18:B1` |
+| 开发电脑静态 IPv4 | `192.168.1.105/24` |
+| DNS | `223.5.5.5`、`8.8.8.8` |
+| DHCP 地址池 | `192.168.1.2` - `192.168.1.104`，不包含静态地址 `.105` |
+| Windows 网络类别 | 当前为 `Public`；建议确认网络可信后改为 `Private` |
+| 项目 broker | `mqtt://192.168.1.105:1884` |
 | 用户名 | `hightac_mqtt` |
 | 密码 | 本机测试默认：`hightac-light` |
 | TLS | 关闭 |
@@ -21,11 +30,13 @@
 | ACL | 允许 `hightac_mqtt` 读写 `/estation/#` |
 | 运行配置 | `tools/mqtt/runtime/config/mosquitto.conf` |
 
-说明：Mosquitto 安装器自动启动了 Windows 服务，占用 `1883`，但只监听 `127.0.0.1/::1`。当前 Codex 进程没有停止系统服务的权限，所以项目 broker 暂时使用 `1884` 端口，并监听 `0.0.0.0:1884`，可供同网段手机和基站连接。
+说明：Mosquitto 安装器自动启动的 Windows 服务占用 `1883`，但只监听 `127.0.0.1/::1`，不能供手机和基站使用。HighTac 项目 broker 使用 `1884`，启动后监听 `0.0.0.0:1884`。2026-07-15 检查时项目 `1884` broker **尚未运行**，必须先执行下方启动命令。
+
+静态地址注意事项：`192.168.1.105/24` 只适用于当前 `Durova-5G` / `192.168.1.0/24` 网络。电脑切换到其他 Wi-Fi 前，应先把 WLAN IPv4 恢复为 DHCP；如果仍需固定地址，必须按新网络的网关和地址池重新配置，不能照搬 `.1.105`。
 
 ## 启动与停止
 
-启动当前项目 broker：
+在仓库根目录启动当前项目 broker：
 
 ```powershell
 $env:Path = "C:\Program Files\Mosquitto;$env:Path"
@@ -54,12 +65,12 @@ $env:Path = "C:\Program Files\Mosquitto;$env:Path"
 
 ## 验证结果
 
-以下两条 smoke test 已通过：
+启动 broker 后执行以下 smoke test：
 
 ```powershell
 $env:Path = "C:\Program Files\Mosquitto;$env:Path"
 .\tools\mqtt\test-mqtt-smoke.ps1 -HostName 127.0.0.1 -Port 1884 -Username hightac_mqtt -Password 'hightac-light'
-.\tools\mqtt\test-mqtt-smoke.ps1 -HostName <当前电脑局域网IP> -Port 1884 -Username hightac_mqtt -Password 'hightac-light'
+.\tools\mqtt\test-mqtt-smoke.ps1 -HostName 192.168.1.105 -Port 1884 -Username hightac_mqtt -Password 'hightac-light'
 ```
 
 验证 topic：
@@ -80,13 +91,13 @@ $env:Path = "C:\Program Files\Mosquitto;$env:Path"
 | 批次号 | `Y20251026000228` |
 | SN | `90A9F7301427` |
 | 电源输入 | `DC12V` |
-| 连接方式 | 已通过网线连接到 `HCTP-LINK_284E` Wi-Fi 路由器 |
+| 连接方式 | 通过网线连接到 `Durova-5G` 所在的中兴 `ZXHN G7615V2` 路由器 |
 
 在 eStation 基站内置管理页中填写：
 
 | 参数 | 值 |
 | --- | --- |
-| MQTT server / host | 当前电脑局域网 IP，例如旧笔记本当前为 `192.168.2.105` |
+| MQTT server / host | `192.168.1.105` |
 | MQTT port | `1884` |
 | TLS / SSL | 关闭 |
 | Username | `hightac_mqtt` |
@@ -99,7 +110,7 @@ $env:Path = "C:\Program Files\Mosquitto;$env:Path"
 如果页面要求“服务器地址:端口”格式，填写：
 
 ```text
-<当前电脑局域网IP>:1884
+192.168.1.105:1884
 ```
 
 基站内置管理页资料：
@@ -113,7 +124,7 @@ $env:Path = "C:\Program Files\Mosquitto;$env:Path"
 
 保存 MQTT 参数后重启基站。App 或 MQTTX 订阅真实基站 SN 的 `/estation/{ID}/#`，应能在约 30 秒内看到 heartbeat。
 
-当前已验证：App 使用 USB 反向代理 `127.0.0.1:1884` 连接本机 broker 后，能收到模拟的 `/estation/90A9F7301427/heartbeat` 并显示“基站在线”。真实基站 heartbeat 暂未收到，下一步需要确认基站管理页 MQTT 参数和 Windows 防火墙。
+当前策略：真实 Android 手机不再使用 USB 反向代理。手机连接 `Durova-5G`，App 和基站都使用 `192.168.1.105:1884`。不能填写 `127.0.0.1`、`localhost` 或 Android 模拟器专用的 `10.0.2.2`。
 
 ## Android App 参数
 
@@ -122,22 +133,25 @@ App 声光寻物页填写：
 | 字段 | 值 |
 | --- | --- |
 | 基站 SN | 真实基站 SN，例如 `90A9F...` |
-| Broker 地址 | 当前电脑局域网 IP，例如旧笔记本当前为 `192.168.2.105` |
+| Broker 地址 | `192.168.1.105` |
 | 端口 | `1884` |
 | 用户名 | `hightac_mqtt` |
 | 密码 | `hightac-light` |
 
-手机必须和当前电脑处在同一 Wi-Fi / 热点 / LAN。Android 模拟器才使用 `10.0.2.2`，真实手机不要填这个地址。
+手机、电脑和基站必须处在 `Durova-5G` 对应的同一 LAN。真实手机不要填 `127.0.0.1`、`localhost` 或 `10.0.2.2`；这些地址只适用于本机/模拟器/USB reverse，不适用于 Wi-Fi 真机。
 
 ## 防火墙
 
-当前 smoke test 在本机和本机 LAN IP 上都已通过。若真实手机或基站连接失败，优先检查 Windows 防火墙是否允许入站 TCP `1884`。
+若真实手机或基站连接失败，优先确认项目 broker 已启动，并检查 Windows 防火墙是否允许入站 TCP `1884`。
 
-需要管理员 PowerShell 执行：
+2026-07-15 检查时，已有 `HighTac MQTT Broker TCP 1884` 入站规则，但其 Profile 为 `Any`。这能覆盖当前标记为 `Public` 的 `Durova-5G`，也会在电脑切换到其他公共网络后继续生效。推荐在确认 `Durova-5G` 是可信现场网络后，用管理员 PowerShell 将网络和规则收窄到 `Private`：
 
 ```powershell
+Set-NetConnectionProfile -InterfaceAlias "WLAN 2" -NetworkCategory Private
 New-NetFirewallRule -DisplayName "HighTac MQTT Broker TCP 1884" -Direction Inbound -Action Allow -Protocol TCP -LocalPort 1884 -Profile Private
 ```
+
+如果同名规则已经存在，可用 `Set-NetFirewallRule -DisplayName "HighTac MQTT Broker TCP 1884" -Profile Private` 收窄；执行前先确认不会影响现场连接。未完成收窄时，切换到不受信任 Wi-Fi 前应停止项目 broker，并禁用该入站规则。
 
 不要在 Public Profile 或公网暴露明文 MQTT。后续进入生产网络时再升级 TLS、VPN 或专用内网隔离。
 
@@ -155,11 +169,12 @@ New-NetFirewallRule -DisplayName "HighTac MQTT Broker TCP 1884" -Direction Inbou
 
 | 现象 | 优先检查 |
 | --- | --- |
-| App 连接失败 | Broker 地址应为当前电脑局域网 IP，端口应为 `1884`，用户名密码一致 |
+| App 连接失败 | 先确认 `192.168.1.105:1884` 正在监听，再检查用户名密码 |
 | 本机可连，手机/基站不可连 | Windows 防火墙、网络 Profile、是否同网段、路由器 AP isolation |
 | 基站无 heartbeat | 基站 MQTT host/port/user/password、保存后是否重启、SN 是否填错 |
 | App 已连 broker 但无基站 | App 订阅的 `{ID}` 必须与真实基站 SN 完全一致，Topic 区分大小写 |
 | 端口冲突 | `1883` 被安装器默认服务占用，项目 broker 使用 `1884` |
+| 切换 Wi-Fi 后断网 | 将 WLAN IPv4 恢复 DHCP，或按新网络网关和 DHCP 地址池重新规划静态 IP |
 
 ## 参考
 

@@ -1,6 +1,7 @@
 package com.example.deepchatdemo.light.data
 
 import android.content.Context
+import com.example.deepchatdemo.light.domain.SiteMqttDefaults
 import com.example.deepchatdemo.light.domain.StationConfig
 
 class StationConfigStore(context: Context) {
@@ -10,11 +11,17 @@ class StationConfigStore(context: Context) {
     )
 
     fun getConfig(): StationConfig {
+        val storedBrokerHost = preferences.getString(KEY_BROKER_HOST, null)
+        val brokerHost = SiteMqttDefaults.resolveBrokerHost(storedBrokerHost)
+        if (storedBrokerHost != brokerHost) {
+            preferences.edit().putString(KEY_BROKER_HOST, brokerHost).apply()
+        }
+
         return StationConfig(
             stationId = preferences.getString(KEY_STATION_ID, "").orEmpty(),
             alias = preferences.getString(KEY_ALIAS, "").orEmpty(),
-            brokerHost = preferences.getString(KEY_BROKER_HOST, "").orEmpty(),
-            brokerPort = preferences.getInt(KEY_BROKER_PORT, 1884),
+            brokerHost = brokerHost,
+            brokerPort = preferences.getInt(KEY_BROKER_PORT, SiteMqttDefaults.BROKER_PORT),
             username = preferences.getString(KEY_USERNAME, "hightac_mqtt").orEmpty(),
             password = preferences.getString(KEY_PASSWORD, "hightac-light").orEmpty(),
             tlsEnabled = preferences.getBoolean(KEY_TLS, false)

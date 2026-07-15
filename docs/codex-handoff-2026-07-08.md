@@ -1,6 +1,8 @@
 # Codex 迁移交接记录 - 声光寻物大版本
 
-日期：2026-07-08
+创建：2026-07-08
+
+现场网络更新：2026-07-15
 
 本文件用于把当前 Codex 对话中的关键上下文沉淀到 Git 仓库，方便在另一台笔记本克隆仓库后继续开发。原始聊天记录不作为代码资产迁移；后续 Codex 可直接阅读本文件、需求文档和代码继续承接。
 
@@ -38,7 +40,7 @@
 | 电源输入 | `DC12V` |
 | 批次号 | `Y20251026000228` |
 | SN | `90A9F7301427` |
-| 连接方式 | 基站通过网线连接到 `HCTP-LINK_284E` 路由器 |
+| 连接方式 | 基站通过网线连接到 `Durova-5G` 所在的中兴 `ZXHN G7615V2` 路由器 |
 
 ## 二开文档结论
 
@@ -87,18 +89,17 @@
 已经验证：
 
 - `:app:testDebugUnitTest` 通过。
-- `:app:installDebug` 曾成功安装到 USB Android 手机。
-- App 使用 USB 反向代理 `127.0.0.1:1884` 可连接本机 Mosquitto。
+- `:app:installDebug` 曾成功安装到 Android 手机。
+- 当前策略改为真实手机走 Wi-Fi / 局域网直连本机 Mosquitto；App Broker 地址必须填写电脑局域网 IP，不能填写 USB reverse 专用的 `127.0.0.1:1884`。
 - App 能订阅真实基站 SN 的：
   - `/estation/90A9F7301427/heartbeat`
   - `/estation/90A9F7301427/result`
 - 本机发布模拟 heartbeat 后，App 可显示 `MQTT 就绪 / 基站在线`。
 
-尚未完成：
+当前待验证：
 
-- 真实基站还没有作为 MQTT client 连入本机 broker。
-- Mosquitto 日志中只看到 App、本机测试客户端和手机端口探测，没有真实基站连接。
-- 下一步要进入基站管理页，把 MQTT server 改为当前笔记本的局域网 IP 和端口 `1884`，保存并重启基站。
+- 2026-07-15 检查时项目 `1884` broker 尚未运行；系统 Mosquitto 只监听 localhost `1883`。
+- 启动项目 broker 后，将 App 和基站统一配置为 `192.168.1.105:1884`，再验证真实 heartbeat 和回执。
 
 ## 现场 MQTT 配置
 
@@ -106,6 +107,14 @@
 
 | 参数 | 值 |
 | --- | --- |
+| 现场 Wi-Fi | `Durova-5G` |
+| 路由器 / 网关 | 中兴 `ZXHN G7615V2` / `192.168.1.1` |
+| 电脑 Wi-Fi MAC | `84:9E:56:07:18:B1` |
+| 电脑静态 IPv4 | `192.168.1.105/24` |
+| DNS | `223.5.5.5`、`8.8.8.8` |
+| 路由器 DHCP 池 | `192.168.1.2` - `192.168.1.104` |
+| Windows 网络类别 | 当前 `Public`；现有 1884 防火墙规则 Profile 为 `Any` |
+| Broker 地址 | `192.168.1.105` |
 | 端口 | `1884` |
 | 监听 | `0.0.0.0:1884` |
 | 用户名 | `hightac_mqtt` |
@@ -116,7 +125,9 @@
 注意：
 
 - `1883` 被 Mosquitto Windows 服务占用，且只监听 localhost，不给真实基站使用。
-- 新电脑上需要重新启动本机 broker，并用新电脑自己的局域网 IP 配置基站和 App。
+- 当前电脑需要启动项目 broker，基站和 App 都填写 `192.168.1.105:1884`。
+- `192.168.1.105` 是 `Durova-5G` 的现场静态地址。切换其他 Wi-Fi 前应恢复 DHCP，或按新网段重新配置静态地址。
+- 建议确认现场网络可信后将 `Durova-5G` 改为 Windows `Private`，并把 1884 入站规则从 `Any` 收窄到 `Private`。
 - 不要把 `tools/mqtt/runtime/config/passwordfile`、日志、数据库提交到 Git。
 
 启动 broker：
@@ -155,7 +166,7 @@ mosquitto_sub -h 127.0.0.1 -p 1884 -u hightac_mqtt -P 'hightac-light' -t '/estat
 现场排查优先级：
 
 1. 进入基站管理页。
-2. 将 MQTT server/host 改为当前笔记本局域网 IP。
+2. 将 MQTT server/host 改为 `192.168.1.105`。
 3. 端口填 `1884`。
 4. 用户名 `hightac_mqtt`。
 5. 密码 `hightac-light`。

@@ -40,6 +40,21 @@ class LightRepositoryTest {
             assertEquals(sampleStationConfig(), reloadedConfigs.get(STATION_ID))
         }
     }
+
+    @Test
+    fun jsonFileStationConfigMigratesKnownLegacySiteHost() {
+        withTempDir { dir ->
+            val configFile = File(dir, "stations.json")
+            configFile.writeText(
+                """{"version":1,"configs":[{"station_id":"$STATION_ID","broker_host":"192.168.2.105","broker_port":1884}]}"""
+            )
+
+            val config = JsonFileStationConfigRepository(configFile).get(STATION_ID)
+
+            assertEquals("192.168.1.105", config?.brokerHost)
+            assertEquals(1884, config?.brokerPort)
+        }
+    }
 }
 
 private const val STATION_ID = "90A9F1234567"

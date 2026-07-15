@@ -9,6 +9,14 @@ import org.junit.Test
 
 class TaskDataJsonTest {
     @Test
+    fun lightCommandDefaultsToFiveSeconds() {
+        val settings = LightCommandSettings()
+
+        assertEquals(5, settings.durationSeconds)
+        assertEquals(1, settings.clipTimeUnits())
+    }
+
+    @Test
     fun singleLightOnEncodesProtocolJson() {
         val task = TaskData.singleLightOn(
             tagId = TAG_ID,

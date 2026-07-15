@@ -5,8 +5,8 @@ import java.util.UUID
 data class StationConfig(
     val stationId: String = "",
     val alias: String = "",
-    val brokerHost: String = "",
-    val brokerPort: Int = 1884,
+    val brokerHost: String = SiteMqttDefaults.BROKER_HOST,
+    val brokerPort: Int = SiteMqttDefaults.BROKER_PORT,
     val username: String = "hightac_mqtt",
     val password: String = "hightac-light",
     val tlsEnabled: Boolean = false
@@ -55,7 +55,7 @@ data class LightCommandSettings(
     val color: LightColor = LightColor.Red,
     val beep: Boolean = true,
     val flashing: Boolean = true,
-    val durationSeconds: Int = 30
+    val durationSeconds: Int = 5
 ) {
     val timeSlots: Int
         get() = (durationSeconds / 5).coerceIn(1, 36)

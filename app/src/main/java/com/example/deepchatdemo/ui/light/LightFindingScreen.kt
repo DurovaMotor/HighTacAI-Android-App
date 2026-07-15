@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,17 +26,24 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
@@ -55,6 +61,7 @@ import com.example.deepchatdemo.light.domain.LightBinding
 import com.example.deepchatdemo.light.domain.LightColor
 import com.example.deepchatdemo.light.domain.LightEvent
 import com.example.deepchatdemo.light.mqtt.MqttConnectionState
+import com.example.deepchatdemo.ui.scanner.BarcodeScannerDialog
 import kotlin.math.roundToInt
 
 @Composable
@@ -73,14 +80,13 @@ fun LightFindingScreen(
     onToggleSettings: () -> Unit,
     onBindCurrent: () -> Unit,
     onLightCurrentItem: () -> Unit,
-    onLightTag: () -> Unit,
-    onTurnOffCurrentItem: () -> Unit,
-    onTurnOffAll: () -> Unit,
     onSelectColor: (LightColor) -> Unit,
     onBeepChange: (Boolean) -> Unit,
     onFlashingChange: (Boolean) -> Unit,
     onDurationChange: (Int) -> Unit
 ) {
+    var showBindingScanner by remember { mutableStateOf(false) }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -114,9 +120,7 @@ fun LightFindingScreen(
                 onTagIdChange = onTagIdChange,
                 onBindCurrent = onBindCurrent,
                 onLightCurrentItem = onLightCurrentItem,
-                onLightTag = onLightTag,
-                onTurnOffCurrentItem = onTurnOffCurrentItem,
-                onTurnOffAll = onTurnOffAll
+                onScanBindingTag = { showBindingScanner = true }
             )
         }
         item {
@@ -163,6 +167,17 @@ fun LightFindingScreen(
             }
         }
     }
+
+    if (showBindingScanner) {
+        BarcodeScannerDialog(
+            title = "扫描绑定灯条 ID",
+            onScanned = { scannedValue ->
+                onTagIdChange(scannedValue.trim().uppercase())
+                showBindingScanner = false
+            },
+            onDismiss = { showBindingScanner = false }
+        )
+    }
 }
 
 @Composable
@@ -172,6 +187,9 @@ private fun StatusPanel(
     onToggleSettings: () -> Unit,
     onDisconnect: () -> Unit
 ) {
+    val canConnect = uiState.isConfigured && uiState.connectionState.canConnect()
+    val canDisconnect = uiState.connectionState.canDisconnect()
+
     LightGlassPanel {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -221,20 +239,22 @@ private fun StatusPanel(
                     fontWeight = FontWeight.SemiBold
                 )
             }
-            if (uiState.connectionState !is MqttConnectionState.Idle) {
-                Spacer(Modifier.height(10.dp))
-                LightOutlineButton(
-                    text = "断开",
-                    icon = Icons.Rounded.PowerSettingsNew,
-                    onClick = onDisconnect
-                )
-            } else if (uiState.isConfigured) {
-                Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 LightGradientButton(
                     text = "连接",
                     icon = Icons.Rounded.Link,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f),
+                    enabled = canConnect,
                     onClick = onConnect
+                )
+                LightOutlineButton(
+                    text = "断开",
+                    icon = Icons.Rounded.LinkOff,
+                    modifier = Modifier.weight(1f),
+                    contentColor = LightUiColors.Danger,
+                    enabled = canDisconnect,
+                    onClick = onDisconnect
                 )
             }
         }
@@ -265,7 +285,7 @@ private fun SettingsPanel(
                     value = uiState.brokerHost,
                     onValueChange = onBrokerHostChange,
                     label = "Broker 地址",
-                    placeholder = "电脑局域网 IP",
+                    placeholder = "现场默认 192.168.1.105",
                     modifier = Modifier.weight(1f)
                 )
                 CompactField(
@@ -277,6 +297,13 @@ private fun SettingsPanel(
                     modifier = Modifier.width(92.dp)
                 )
             }
+            Text(
+                text = "Durova-5G 默认使用 192.168.1.105:1884。切换 Wi-Fi 后请改为 MQTT 电脑在新网络中的局域网 IP；不要填 127.0.0.1、localhost 或 10.0.2.2。",
+                color = LightUiColors.Muted,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.SemiBold
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CompactField(
                     value = uiState.username,
@@ -310,13 +337,11 @@ private fun CommandPanel(
     onTagIdChange: (String) -> Unit,
     onBindCurrent: () -> Unit,
     onLightCurrentItem: () -> Unit,
-    onLightTag: () -> Unit,
-    onTurnOffCurrentItem: () -> Unit,
-    onTurnOffAll: () -> Unit
+    onScanBindingTag: () -> Unit
 ) {
     LightGlassPanel {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SectionTitle("扫码绑定 / 找件")
+            SectionTitle("扫码绑定")
             CompactField(
                 value = uiState.itemCode,
                 onValueChange = onItemCodeChange,
@@ -327,7 +352,8 @@ private fun CommandPanel(
                 value = uiState.tagId,
                 onValueChange = onTagIdChange,
                 label = "灯条 ID",
-                placeholder = "AD1..."
+                placeholder = "AD1...",
+                trailingIcon = { ScannerIconButton(onClick = onScanBindingTag) }
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 LightGradientButton(
@@ -341,26 +367,6 @@ private fun CommandPanel(
                     icon = Icons.Rounded.FlashOn,
                     modifier = Modifier.weight(1f),
                     onClick = onLightCurrentItem
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                LightOutlineButton(
-                    text = "按灯条亮",
-                    icon = Icons.Rounded.FlashOn,
-                    modifier = Modifier.weight(1f),
-                    onClick = onLightTag
-                )
-                LightOutlineButton(
-                    text = "当前灭灯",
-                    icon = Icons.Rounded.PowerSettingsNew,
-                    modifier = Modifier.weight(1f),
-                    onClick = onTurnOffCurrentItem
-                )
-                LightOutlineButton(
-                    text = "全灭",
-                    icon = Icons.Rounded.PowerSettingsNew,
-                    modifier = Modifier.weight(1f),
-                    onClick = onTurnOffAll
                 )
             }
         }
@@ -495,7 +501,8 @@ private fun CompactField(
     label: String,
     placeholder: String,
     modifier: Modifier = Modifier,
-    keyboardType: KeyboardType = KeyboardType.Text
+    keyboardType: KeyboardType = KeyboardType.Text,
+    trailingIcon: (@Composable () -> Unit)? = null
 ) {
     OutlinedTextField(
         value = value,
@@ -505,8 +512,24 @@ private fun CompactField(
         placeholder = { Text(placeholder) },
         singleLine = true,
         shape = RoundedCornerShape(18.dp),
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType)
+        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+        trailingIcon = trailingIcon
     )
+}
+
+@Composable
+private fun ScannerIconButton(onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(40.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.QrCodeScanner,
+            contentDescription = "扫描灯条 ID",
+            tint = LightUiColors.Blue,
+            modifier = Modifier.size(22.dp)
+        )
+    }
 }
 
 @Composable
@@ -619,6 +642,7 @@ private fun LightGradientButton(
     text: String,
     icon: ImageVector,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     ActionButton(
@@ -628,6 +652,7 @@ private fun LightGradientButton(
         brush = LightUiColors.actionBrush(),
         textColor = Color.White,
         elevation = 12.dp,
+        enabled = enabled,
         onClick = onClick
     )
 }
@@ -637,15 +662,24 @@ private fun LightOutlineButton(
     text: String,
     icon: ImageVector,
     modifier: Modifier = Modifier,
+    contentColor: Color = LightUiColors.Ink,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     ActionButton(
         text = text,
         icon = icon,
         modifier = modifier,
-        brush = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.58f), Color.White.copy(alpha = 0.42f))),
-        textColor = LightUiColors.Ink,
+        brush = Brush.linearGradient(
+            listOf(
+                contentColor.copy(alpha = 0.12f),
+                Color.White.copy(alpha = 0.70f)
+            )
+        ),
+        textColor = contentColor,
         elevation = 5.dp,
+        borderColor = contentColor.copy(alpha = 0.24f),
+        enabled = enabled,
         onClick = onClick
     )
 }
@@ -658,15 +692,22 @@ private fun ActionButton(
     brush: Brush,
     textColor: Color,
     elevation: Dp,
+    borderColor: Color? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
+    val shape = RoundedCornerShape(18.dp)
     Row(
         modifier = modifier
-            .heightIn(min = 46.dp)
-            .shadow(elevation, RoundedCornerShape(18.dp))
-            .clip(RoundedCornerShape(18.dp))
+            .height(48.dp)
+            .alpha(if (enabled) 1f else 0.42f)
+            .shadow(if (enabled) elevation else 0.dp, shape)
+            .clip(shape)
             .background(brush)
-            .clickable(onClick = onClick)
+            .then(
+                if (borderColor != null) Modifier.border(1.dp, borderColor, shape) else Modifier
+            )
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
@@ -679,8 +720,7 @@ private fun ActionButton(
             fontSize = 14.sp,
             lineHeight = 17.sp,
             fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            maxLines = 1
         )
     }
 }
@@ -752,6 +792,19 @@ private fun MqttConnectionState.statusColor(): Color {
         is MqttConnectionState.Failed -> LightUiColors.Danger
         else -> LightUiColors.Muted
     }
+}
+
+private fun MqttConnectionState.canConnect(): Boolean {
+    return this is MqttConnectionState.Idle ||
+        this is MqttConnectionState.Disconnected ||
+        this is MqttConnectionState.Failed
+}
+
+private fun MqttConnectionState.canDisconnect(): Boolean {
+    return this is MqttConnectionState.Connecting ||
+        this is MqttConnectionState.Subscribing ||
+        this is MqttConnectionState.Ready ||
+        this is MqttConnectionState.Reconnecting
 }
 
 private object LightUiColors {

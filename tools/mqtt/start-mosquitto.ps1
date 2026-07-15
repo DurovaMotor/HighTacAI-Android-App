@@ -4,7 +4,7 @@ param(
     [string]$Mode = 'Auto',
 
     [ValidateRange(1, 65535)]
-    [int]$Port = 1883,
+    [int]$Port = 1884,
 
     [string]$Username = 'hightac_mqtt',
 

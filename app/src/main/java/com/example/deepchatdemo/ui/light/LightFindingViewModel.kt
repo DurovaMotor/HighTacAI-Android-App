@@ -14,12 +14,14 @@ import com.example.deepchatdemo.light.domain.LightColor
 import com.example.deepchatdemo.light.domain.LightCommandSettings
 import com.example.deepchatdemo.light.domain.LightEvent
 import com.example.deepchatdemo.light.domain.LightStatus
+import com.example.deepchatdemo.light.domain.SiteMqttDefaults
 import com.example.deepchatdemo.light.domain.StationConfig
 import com.example.deepchatdemo.light.domain.batteryLevelFromRaw
 import com.example.deepchatdemo.light.mqtt.MqttBrokerEndpoint
 import com.example.deepchatdemo.light.mqtt.EStationMqttClient
 import com.example.deepchatdemo.light.mqtt.MqttConnectionConfig
 import com.example.deepchatdemo.light.mqtt.MqttConnectionState
+import com.example.deepchatdemo.light.mqtt.isUnavailableFromWifiPhone
 import com.example.deepchatdemo.light.protocol.EStationValidators
 import com.example.deepchatdemo.light.protocol.EstationInfo
 import com.example.deepchatdemo.light.protocol.TaskData
@@ -30,8 +32,8 @@ import kotlinx.coroutines.launch
 
 data class LightFindingUiState(
     val stationId: String = "",
-    val brokerHost: String = "",
-    val brokerPort: String = "1884",
+    val brokerHost: String = SiteMqttDefaults.BROKER_HOST,
+    val brokerPort: String = SiteMqttDefaults.BROKER_PORT.toString(),
     val username: String = "hightac_mqtt",
     val password: String = "hightac-light",
     val itemCode: String = "",
@@ -72,13 +74,20 @@ class LightFindingViewModel(
 
     init {
         val config = configStore.getConfig()
+        val configUsesLocalOnlyAddress = config.brokerHost.isUnavailableFromWifiPhone()
         uiState = uiState.copy(
             stationId = config.stationId,
             brokerHost = config.brokerHost,
             brokerPort = config.brokerPort.toString(),
             username = config.username,
             password = config.password,
-            bindings = bindingRepository.getAll()
+            bindings = bindingRepository.getAll(),
+            showSettings = configUsesLocalOnlyAddress,
+            inputMessage = if (configUsesLocalOnlyAddress) {
+                "当前 Broker 地址 ${config.brokerHost} 无法供 Wi-Fi 真机使用。现场 Durova-5G 请使用 ${SiteMqttDefaults.BROKER_HOST}。"
+            } else {
+                null
+            }
         )
         collectMqtt()
         if (config.isUsable()) {
@@ -163,6 +172,12 @@ class LightFindingViewModel(
             MqttBrokerEndpoint.parse(uiState.brokerHost, fallbackPort)
         }.getOrElse { error ->
             uiState = uiState.copy(inputMessage = error.message ?: "请填写可访问的 MQTT 地址和端口。")
+            return
+        }
+        if (endpoint.host.isUnavailableFromWifiPhone()) {
+            uiState = uiState.copy(
+                inputMessage = "手机走 Wi-Fi 时不能使用 ${endpoint.host}。现场 Durova-5G 请使用 ${SiteMqttDefaults.BROKER_HOST}。"
+            )
             return
         }
 
@@ -436,5 +451,6 @@ class LightFindingViewModel(
 private fun StationConfig.isUsable(): Boolean {
     return EStationValidators.isValidStationId(stationId) &&
         brokerHost.isNotBlank() &&
-        brokerPort in 1..65535
+        brokerPort in 1..65535 &&
+        !brokerHost.isUnavailableFromWifiPhone()
 }

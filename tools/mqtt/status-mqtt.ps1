@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidateRange(1, 65535)]
-    [int]$Port = 1883,
+    [int]$Port = 1884,
 
     [string]$ContainerName = 'hightac-mqtt'
 )
@@ -78,6 +78,9 @@ $ruleName = "HighTac MQTT Broker TCP $Port"
 $rule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
 if ($rule) {
     $rule | Select-Object DisplayName, Enabled, Direction, Action, Profile | Format-Table -AutoSize | Out-String | Write-Host
+    if ($rule.Profile -contains 'Any') {
+        Write-Host "  warning: this rule applies on every network profile; prefer a trusted Private LAN." -ForegroundColor Yellow
+    }
 }
 else {
     Write-Host "  rule '$ruleName' not found"

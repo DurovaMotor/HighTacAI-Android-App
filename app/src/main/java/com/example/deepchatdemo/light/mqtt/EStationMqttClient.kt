@@ -39,7 +39,13 @@ data class MqttConnectionConfig(
     val serverUri: String
         get() {
             val scheme = if (tlsEnabled) "ssl" else "tcp"
-            return "$scheme://${host.trim()}:$port"
+            val normalizedHost = host.trim()
+            val uriHost = if (':' in normalizedHost && !normalizedHost.startsWith("[")) {
+                "[$normalizedHost]"
+            } else {
+                normalizedHost
+            }
+            return "$scheme://$uriHost:$port"
     }
 }
 
@@ -101,7 +107,7 @@ data class MqttBrokerEndpoint(
             }
 
             val lastColon = authority.lastIndexOf(':')
-            if (lastColon > 0) {
+            if (lastColon > 0 && authority.count { it == ':' } == 1) {
                 val maybePort = authority.substring(lastColon + 1)
                 if (maybePort.all { it.isDigit() }) {
                     return authority.substring(0, lastColon) to maybePort.toInt()
@@ -111,6 +117,30 @@ data class MqttBrokerEndpoint(
             return authority to fallbackPort
         }
     }
+}
+
+internal fun String.isUnavailableFromWifiPhone(): Boolean {
+    val authority = trim()
+        .lowercase()
+        .substringAfter("://")
+        .substringBefore('/')
+        .substringBefore('?')
+        .trim()
+    val normalizedHost = when {
+        authority.startsWith("[") -> authority.substringAfter('[').substringBefore(']')
+        authority.count { it == ':' } == 1 && authority.substringAfterLast(':').all { it.isDigit() } -> {
+            authority.substringBeforeLast(':')
+        }
+        else -> authority
+    }
+
+    return normalizedHost == "localhost" ||
+        normalizedHost == "::1" ||
+        normalizedHost == "0:0:0:0:0:0:0:1" ||
+        normalizedHost == "0.0.0.0" ||
+        normalizedHost == "::" ||
+        normalizedHost == "10.0.2.2" ||
+        normalizedHost.startsWith("127.")
 }
 
 sealed interface MqttConnectionState {
@@ -195,13 +225,15 @@ class EStationMqttClient(
     fun disconnect() {
         val current = client
         client = null
-        if (current != null) {
-            runCatching {
-                if (current.isConnected) current.disconnectForcibly(600, 600)
-                current.close()
-            }
-        }
         _connectionState.value = MqttConnectionState.Disconnected
+        if (current != null) {
+            // Detach callbacks first so a stale auto-reconnect cannot overwrite Disconnected.
+            runCatching { current.setCallback(null) }
+            runCatching {
+                if (current.isConnected) current.disconnectForcibly(0, 0, false)
+            }
+            runCatching { current.close(true) }
+        }
     }
 
     fun publishTask(taskData: TaskData) {
