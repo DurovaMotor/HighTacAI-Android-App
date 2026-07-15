@@ -27,8 +27,8 @@ import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
-import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.ViewWeek
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -524,7 +524,7 @@ private fun ScannerIconButton(onClick: () -> Unit) {
         modifier = Modifier.size(40.dp)
     ) {
         Icon(
-            imageVector = Icons.Rounded.QrCodeScanner,
+            imageVector = Icons.Rounded.ViewWeek,
             contentDescription = "扫描灯条 ID",
             tint = LightUiColors.Blue,
             modifier = Modifier.size(22.dp)

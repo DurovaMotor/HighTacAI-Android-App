@@ -157,7 +157,7 @@ fun BarcodeScannerDialog(
                         )
 
                         CameraPermissionState.Denied -> PermissionMessage(
-                            message = "相机权限被拒绝。扫描条形码或二维码需要使用相机。",
+                            message = "相机权限被拒绝。扫描条形码需要使用相机。",
                             primaryActionLabel = "再次授权",
                             onPrimaryAction = {
                                 permissionState = CameraPermissionState.Requesting
@@ -295,7 +295,7 @@ private fun CameraContent(
                     )
             )
             Text(
-                text = "将条形码或二维码置于框内",
+                text = "将一维条形码置于框内",
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(horizontal = 24.dp, vertical = 24.dp)
@@ -356,7 +356,7 @@ private fun CameraPreview(
     }
     val scanner = remember {
         val options = BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
+            .setOneDimensionalBarcodeFormats()
             .build()
         BarcodeScanning.getClient(options)
     }
@@ -453,7 +453,9 @@ private fun analyzeImage(
         scanner.process(inputImage)
             .addOnSuccessListener { barcodes ->
                 val value = barcodes.firstNotNullOfOrNull { barcode ->
-                    barcode.rawValue?.trim()?.takeIf { it.isNotEmpty() }
+                    barcode.rawValue
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() && isOneDimensionalBarcodeFormat(barcode.format) }
                 }
                 if (
                     value != null &&
