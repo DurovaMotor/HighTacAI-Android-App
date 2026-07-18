@@ -505,15 +505,18 @@ function Install-HighTacWinSWService {
     if (-not (Test-Path -LiteralPath $WrapperPath -PathType Leaf)) {
         throw "WinSW wrapper was not found for $ServiceName`: $WrapperPath"
     }
-    $command = 'install'
-    if ($null -ne (Get-HighTacService -Name $ServiceName)) {
-        $command = 'refresh'
-    }
-
-    if ($PSCmdlet.ShouldProcess($ServiceName, "$command WinSW service")) {
-        $output = & $WrapperPath $command 2>&1
+    $serviceExists = $null -ne (Get-HighTacService -Name $ServiceName)
+    $action = if ($serviceExists) { 'Replace' } else { 'Install' }
+    if ($PSCmdlet.ShouldProcess($ServiceName, "$action WinSW service registration")) {
+        if ($serviceExists) {
+            Uninstall-HighTacWinSWService `
+                -WrapperPath $WrapperPath `
+                -ServiceName $ServiceName `
+                -Confirm:$false
+        }
+        $output = & $WrapperPath install 2>&1
         if ($LASTEXITCODE -ne 0) {
-            throw "WinSW '$command' failed for $ServiceName (exit $LASTEXITCODE): $($output -join ' ')"
+            throw "WinSW 'install' failed for $ServiceName (exit $LASTEXITCODE): $($output -join ' ')"
         }
     }
 }

@@ -76,6 +76,16 @@ $runnerAst = [Management.Automation.Language.Parser]::ParseFile(
     [ref]$runnerParseErrors
 )
 Assert-SandboxCondition ($runnerParseErrors.Count -eq 0) 'Sandbox runner must parse in Windows PowerShell 5.1.'
+$runnerText = [IO.File]::ReadAllText($runnerPath)
+$candidateRehearsalPattern = @'
+(?s)Invoke-RehearsalExecutable\s+-Path\s+\$CandidateInstaller\s+-Arguments\s+@\(\s*'/VERYSILENT',\s*'/SUPPRESSMSGBOXES',\s*'/NORESTART',\s*'/REHEARSAL=1'\s*\)\s+-Step\s+'(?:upgrade_install|reinstall_with_preserved_data)'
+'@
+$candidateRehearsalCalls = @([regex]::Matches($runnerText, $candidateRehearsalPattern))
+Assert-SandboxCondition (
+    $candidateRehearsalCalls.Count -eq 2 -and
+    @($candidateRehearsalCalls.Value | Where-Object { $_ -match "-Step\s+'upgrade_install'" }).Count -eq 1 -and
+    @($candidateRehearsalCalls.Value | Where-Object { $_ -match "-Step\s+'reinstall_with_preserved_data'" }).Count -eq 1
+) 'Sandbox candidate upgrade and preserved-data reinstall must skip the unsupported VC++ bootstrapper.'
 
 $requiredFunctionNames = @(
     'New-RehearsalReport',

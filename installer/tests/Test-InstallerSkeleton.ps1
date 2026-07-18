@@ -198,6 +198,10 @@ Assert-InstallerCondition (
 ) 'App-local VC++ runtime DLLs must be Microsoft-signed and version-matched before packaging.'
 Assert-InstallerCondition ($installText -match '\[int\]\$MqttPort\s*=\s*1884') 'Install script must default MQTT to 1884.'
 Assert-InstallerCondition ($installText -match '\[int\]\$WebPort\s*=\s*8088') 'Install script must default the HighTac platform to 8088.'
+Assert-InstallerCondition (
+    $commonModuleText -match '(?s)function Install-HighTacWinSWService.*?Uninstall-HighTacWinSWService.*?\$WrapperPath install' -and
+    $commonModuleText -notmatch '\$command\s*=\s*''refresh'''
+) 'Owned WinSW services must be replaced with supported uninstall/install commands during upgrades; WinSW 2.12 has no refresh command.'
 Assert-InstallerCondition ($installText -match '\[string\]\$LegacyRuntimeRoot' -and $installText -match 'Copy-HighTacLegacyRuntimeData') 'Install script must explicitly validate and copy a legacy server runtime source.'
 Assert-InstallerCondition ($installText -match '\$bootstrapAdminUsername\s*=\s*''Adam''' -and $installText -match '\$bootstrapAdminPasswordPlain\s*=\s*New-HighTacRandomPassword' -and $installText -match '\$bootstrapAdminMustChangePassword\s*=\s*''true''') 'Fresh install must provision Adam with a generated one-time password and a mandatory password change.'
 Assert-InstallerCondition ($installText -notmatch '(?i)bootstrapAdminPassword(?:Plain)?\s*=\s*[''"]Adam[''"]' -and $installText -notmatch "HIGHTAC_BOOTSTRAP_ADMIN_PASSWORD\s*=\s*'Adam'") 'Installer source must never embed the historical fixed bootstrap password.'

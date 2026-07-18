@@ -260,6 +260,9 @@ function Invoke-RehearsalExecutable {
     )
 
     $process = Start-Process -FilePath $Path -ArgumentList $Arguments -Wait -PassThru -WindowStyle Hidden
+    if ($process.ExitCode -ge 0) {
+        Set-RehearsalCount -Name "process_exit_code_$Step" -Value ([long]$process.ExitCode)
+    }
     Add-RehearsalResult -Step $Step -Passed ($process.ExitCode -eq 0)
 }
 
@@ -1280,7 +1283,7 @@ try {
     )
 
     Invoke-RehearsalExecutable -Path $CandidateInstaller -Arguments @(
-        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/REHEARSAL=1'
     ) -Step 'upgrade_install'
     Add-RehearsalResult -Step 'upgrade_ready' -Passed (Wait-RehearsalCondition -Condition {
         Test-RehearsalApiReady
@@ -1338,7 +1341,7 @@ try {
     )
 
     Invoke-RehearsalExecutable -Path $CandidateInstaller -Arguments @(
-        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+        '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/REHEARSAL=1'
     ) -Step 'reinstall_with_preserved_data'
     Add-RehearsalResult -Step 'preserved_data_reused' -Passed (Wait-RehearsalCondition -Condition {
         Test-RehearsalApiReady
