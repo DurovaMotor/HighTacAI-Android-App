@@ -152,6 +152,11 @@ Set-NetConnectionProfile -InterfaceAlias 'WLAN 2' -NetworkCategory Private
 .\installer\windows\Set-HighTacFirewall.ps1 -Action Ensure -WebPort 8088 -MqttPort 1884 -Force
 ```
 
+正式安装后的 `HighTacPlatform` 启动器还会处理 Windows 重启时的网络类别回退：它只会
+核对安装记录中的 `WLAN 2` 和固定地址 `192.168.1.105`，确认 DHCP 仍关闭后恢复
+`Private`。因此无需把 `8088/1884` 规则改成 Public/Any。若切换到其他 Wi-Fi，请先恢复
+DHCP 或重新配置并升级安装记录，不要依赖这项恢复逻辑把陌生网络标记为可信。
+
 电脑切换到其他 Wi-Fi 前，应恢复 DHCP或按新网络重新规划静态地址，并重新检查该网络是否可信。不要把 `Durova-5G` 的 Private 分类、`.105` 静态地址或防火墙假设机械复制到公共网络。
 
 不要在 Public Profile 或公网暴露明文 MQTT。后续进入生产网络时再升级 TLS、VPN 或专用内网隔离。

@@ -136,6 +136,13 @@ Broker 在线不等于基站在线，三种状态不得合并判断。
 - TCP `8088`，`Private` + `LocalSubnet`；
 - TCP `1884`，`Private` + `LocalSubnet`。
 
+Windows 有时会在固定 IPv4 的 Wi-Fi 刚启动时把已验证的现场网络临时重判为
+`Public`/“未识别的网络”。`HighTacPlatform` 服务以 LocalSystem 启动时会读取受保护的
+`install-state.json`，仅在安装时记录的网卡仍持有同一个非回环、DHCP 已关闭的 IPv4
+地址时，将该网卡恢复为 `Private`。它不会把防火墙放宽到 Public，也不会修改其他网卡。
+若网卡、地址或 DHCP 状态已变化，服务会失败并在 WinSW 日志中给出明确原因，管理员需
+先修正现场网络配置。
+
 重复应用规则：
 
 ```powershell

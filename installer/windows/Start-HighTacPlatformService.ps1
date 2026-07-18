@@ -5,7 +5,10 @@ param(
     [string]$DataRoot = (Join-Path $env:ProgramData 'HighTac\Platform'),
 
     [ValidateRange(5, 120)]
-    [int]$BrokerStartTimeoutSeconds = 45
+    [int]$BrokerStartTimeoutSeconds = 45,
+
+    [ValidateRange(5, 120)]
+    [int]$TrustedLanProfileTimeoutSeconds = 45
 )
 
 Set-StrictMode -Version Latest
@@ -124,6 +127,99 @@ function Test-LocalTcpPort {
     }
 }
 
+function Repair-HighTacTrustedLanProfile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DataRoot,
+
+        [Parameter(Mandatory = $true)]
+        [int]$TimeoutSeconds
+    )
+
+    $statePath = Join-Path $DataRoot 'config\install-state.json'
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        return
+    }
+
+    $item = Get-Item -LiteralPath $statePath -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'HighTac install state cannot be a symbolic link.'
+    }
+
+    try {
+        $state = [IO.File]::ReadAllText($statePath) | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "HighTac install state is not valid JSON: $($_.Exception.Message)"
+    }
+
+    $interfaceAlias = [string]$state.interface_alias
+    $lanIPv4 = [string]$state.lan_ipv4
+    $parsedAddress = $null
+    if ([string]::IsNullOrWhiteSpace($interfaceAlias) -or
+        -not [Net.IPAddress]::TryParse($lanIPv4, [ref]$parsedAddress) -or
+        $parsedAddress.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork -or
+        [Net.IPAddress]::IsLoopback($parsedAddress)) {
+        return
+    }
+
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastFailure = 'The configured LAN adapter has not become ready.'
+    do {
+        try {
+            $addresses = @(Get-NetIPAddress `
+                -InterfaceAlias $interfaceAlias `
+                -AddressFamily IPv4 `
+                -ErrorAction Stop | Where-Object { $_.IPAddress -ceq $lanIPv4 })
+            if ($addresses.Count -gt 1) {
+                throw "Configured LAN address '$lanIPv4' is ambiguous on adapter '$interfaceAlias'."
+            }
+            if ($addresses.Count -eq 1) {
+                $interface = Get-NetIPInterface `
+                    -InterfaceIndex $addresses[0].InterfaceIndex `
+                    -AddressFamily IPv4 `
+                    -ErrorAction Stop
+                if ([string]$interface.Dhcp -ne 'Disabled') {
+                    throw "Configured HighTac LAN adapter '$interfaceAlias' no longer uses a static IPv4 address."
+                }
+
+                $profiles = @(Get-NetConnectionProfile `
+                    -InterfaceIndex $addresses[0].InterfaceIndex `
+                    -ErrorAction SilentlyContinue)
+                if ($profiles.Count -gt 1) {
+                    throw "Configured LAN adapter '$interfaceAlias' has an ambiguous Windows network profile."
+                }
+                if ($profiles.Count -eq 1) {
+                    if ([string]$profiles[0].NetworkCategory -eq 'Private') {
+                        return
+                    }
+                    if ([string]$profiles[0].NetworkCategory -eq 'DomainAuthenticated') {
+                        throw "Configured LAN adapter '$interfaceAlias' is domain-authenticated and cannot be changed by HighTac."
+                    }
+
+                    Set-NetConnectionProfile `
+                        -InterfaceIndex $addresses[0].InterfaceIndex `
+                        -NetworkCategory Private `
+                        -ErrorAction Stop
+                    $verified = Get-NetConnectionProfile `
+                        -InterfaceIndex $addresses[0].InterfaceIndex `
+                        -ErrorAction Stop
+                    if ([string]$verified.NetworkCategory -eq 'Private') {
+                        return
+                    }
+                    throw "Configured LAN adapter '$interfaceAlias' did not remain on the Private network profile."
+                }
+            }
+        }
+        catch {
+            $lastFailure = $_.Exception.Message
+        }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    throw "HighTac could not restore the trusted Private LAN profile for '$interfaceAlias' ($lanIPv4): $lastFailure"
+}
+
 if ($env:OS -ne 'Windows_NT') {
     throw 'HighTacPlatform service launcher requires Windows.'
 }
@@ -161,6 +257,10 @@ if ($serviceEnvironment.HIGHTAC_ENVIRONMENT -cne 'production' -or
     $serviceEnvironment.HIGHTAC_MQTT_HOST -cne '127.0.0.1') {
     throw 'Protected runtime environment does not match the production Windows service contract.'
 }
+
+Repair-HighTacTrustedLanProfile `
+    -DataRoot $DataRoot `
+    -TimeoutSeconds $TrustedLanProfileTimeoutSeconds
 
 $mqttPort = 0
 if (-not [int]::TryParse([string]$serviceEnvironment.HIGHTAC_MQTT_PORT, [ref]$mqttPort) -or

@@ -94,6 +94,10 @@ $serviceLauncherText = Get-InstallerText -RelativePath 'windows\Start-HighTacPla
 Assert-InstallerCondition ($serviceLauncherText -match 'Read-HighTacServiceEnvironment' -and $serviceLauncherText -match 'HIGHTAC_MQTT_PASSWORD') 'Platform launcher must load and validate protected HIGHTAC_MQTT settings.'
 Assert-InstallerCondition ($serviceLauncherText -match '(?s)\$name\s*=\s*\$Matches\[1\]\s+\$encodedValue\s*=\s*\$Matches\[2\].*?ConvertFrom-DotEnvQuotedValue\s+-Value\s+\$encodedValue') 'Platform launcher must capture the dotenv value before another regex operation can overwrite PowerShell $Matches.'
 Assert-InstallerCondition ($serviceLauncherText -match 'SetEnvironmentVariable\(\$name, \[string\]\$serviceEnvironment\[\$name\], ''Process''\)') 'Platform launcher must pass runtime settings through the child process environment.'
+Assert-InstallerCondition ($serviceLauncherText -match 'Repair-HighTacTrustedLanProfile' -and $serviceLauncherText -match 'install-state\.json') 'Platform launcher must repair the trusted LAN profile from protected install state after a Windows network reclassification.'
+Assert-InstallerCondition ($serviceLauncherText -match 'Get-NetIPAddress[\s\S]*?-InterfaceAlias \$interfaceAlias[\s\S]*?\.IPAddress -ceq \$lanIPv4') 'Trusted LAN repair must target the exact installed adapter and IPv4 address.'
+Assert-InstallerCondition ($serviceLauncherText -match "\.Dhcp\s+-ne\s+'Disabled'" -and $serviceLauncherText -match 'IsLoopback') 'Trusted LAN repair must require the recorded static non-loopback IPv4 address.'
+Assert-InstallerCondition ($serviceLauncherText -match 'Set-NetConnectionProfile[\s\S]*?-NetworkCategory Private') 'Trusted LAN repair must restore Private rather than broadening firewall profiles.'
 Assert-InstallerCondition ($serviceLauncherText -match "Start-Service -Name 'HighTacMqttBroker'" -and $serviceLauncherText -match 'Test-LocalTcpPort') 'Platform launcher must order broker startup and readiness before API launch.'
 Assert-InstallerCondition ($serviceLauncherText -match '& \$platformExecutable serve' -and $serviceLauncherText -match 'exit \$platformExitCode') 'Platform launcher must propagate the packaged process exit code so WinSW recovery is real.'
 Assert-InstallerCondition ($serviceLauncherText -notmatch 'Write-Host|Write-Output') 'Platform launcher must not print runtime environment values.'
@@ -142,6 +146,75 @@ if ($parserFunctionDefinitions.Count -eq 2) {
     finally {
         Remove-Item -LiteralPath $dotenvFixturePath -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath Function:\Get-Acl -Force -ErrorAction SilentlyContinue
+    }
+}
+
+$lanRepairDefinition = @($launcherAst.FindAll({
+    param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Repair-HighTacTrustedLanProfile'
+}, $true))
+Assert-InstallerCondition ($lanRepairDefinition.Count -eq 1) 'Launcher regression test must locate the trusted LAN repair function.'
+if ($lanRepairDefinition.Count -eq 1) {
+    Invoke-Expression $lanRepairDefinition[0].Extent.Text
+    $lanRepairRoot = Join-Path ([IO.Path]::GetTempPath()) "hightac-lan-repair-$([Guid]::NewGuid().ToString('N'))"
+    $lanRepairConfig = Join-Path $lanRepairRoot 'config'
+    $script:mockNetworkCategory = 'Public'
+    $script:mockSetProfileCalls = 0
+    function Get-NetIPAddress {
+        param([string]$InterfaceAlias, [string]$AddressFamily, $ErrorAction)
+        [pscustomobject]@{ InterfaceIndex = 17; IPAddress = '192.168.1.105' }
+    }
+    function Get-NetIPInterface {
+        param([int]$InterfaceIndex, [string]$AddressFamily, $ErrorAction)
+        [pscustomobject]@{ Dhcp = 'Disabled' }
+    }
+    function Get-NetConnectionProfile {
+        param([int]$InterfaceIndex, $ErrorAction)
+        [pscustomobject]@{ NetworkCategory = $script:mockNetworkCategory }
+    }
+    function Set-NetConnectionProfile {
+        param([int]$InterfaceIndex, [string]$NetworkCategory, $ErrorAction)
+        $script:mockSetProfileCalls++
+        $script:mockNetworkCategory = $NetworkCategory
+    }
+    function Start-Sleep { param([int]$Milliseconds) }
+    try {
+        New-Item -ItemType Directory -Path $lanRepairConfig -Force | Out-Null
+        [IO.File]::WriteAllText(
+            (Join-Path $lanRepairConfig 'install-state.json'),
+            '{"interface_alias":"WLAN 2","lan_ipv4":"192.168.1.105"}',
+            (New-Object Text.UTF8Encoding($false))
+        )
+        Repair-HighTacTrustedLanProfile -DataRoot $lanRepairRoot -TimeoutSeconds 5
+        Assert-InstallerCondition (
+            $script:mockSetProfileCalls -eq 1 -and
+            $script:mockNetworkCategory -ceq 'Private'
+        ) 'Launcher must restore only the validated static LAN adapter to the Private profile.'
+
+        [IO.File]::WriteAllText(
+            (Join-Path $lanRepairConfig 'install-state.json'),
+            '{"interface_alias":"Loopback","lan_ipv4":"127.0.0.1"}',
+            (New-Object Text.UTF8Encoding($false))
+        )
+        Repair-HighTacTrustedLanProfile -DataRoot $lanRepairRoot -TimeoutSeconds 5
+        Assert-InstallerCondition ($script:mockSetProfileCalls -eq 1) 'Launcher must never reclassify a loopback or rehearsal-only endpoint.'
+    }
+    catch {
+        Assert-InstallerCondition $false "Launcher trusted LAN behavior regression failed: $($_.Exception.Message)"
+    }
+    finally {
+        Remove-Item -LiteralPath $lanRepairRoot -Recurse -Force -ErrorAction SilentlyContinue
+        foreach ($mockName in @(
+            'Get-NetIPAddress',
+            'Get-NetIPInterface',
+            'Get-NetConnectionProfile',
+            'Set-NetConnectionProfile',
+            'Start-Sleep'
+        )) {
+            Remove-Item -LiteralPath "Function:\$mockName" -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Variable -Name mockNetworkCategory, mockSetProfileCalls -Scope Script -ErrorAction SilentlyContinue
     }
 }
 
