@@ -80,6 +80,8 @@ Assert-SandboxCondition ($runnerParseErrors.Count -eq 0) 'Sandbox runner must pa
 $requiredFunctionNames = @(
     'New-RehearsalReport',
     'Get-RehearsalCanonicalHash',
+    'Start-RehearsalCheckpoint',
+    'Complete-RehearsalCheckpoint',
     'Test-RehearsalServiceRunning',
     'Test-RehearsalProcessDescendant',
     'Select-RehearsalPlatformProcess',
@@ -100,6 +102,24 @@ foreach ($functionName in $requiredFunctionNames) {
         Invoke-Expression $definitions[0].Extent.Text
     }
 }
+
+$checks = [ordered]@{}
+Start-RehearsalCheckpoint -Step 'diagnostic_stage'
+Assert-SandboxCondition (
+    $checks.Contains('diagnostic_stage') -and $checks['diagnostic_stage'] -eq $false
+) 'A started rehearsal checkpoint must be represented as a failed Boolean check.'
+Complete-RehearsalCheckpoint -Step 'diagnostic_stage'
+Assert-SandboxCondition (
+    $checks['diagnostic_stage'] -eq $true
+) 'A completed rehearsal checkpoint must replace the failed Boolean check.'
+$checkpointOrderingRejected = $false
+try {
+    Complete-RehearsalCheckpoint -Step 'not_started'
+}
+catch {
+    $checkpointOrderingRejected = $_.Exception.Message -match 'was not started'
+}
+Assert-SandboxCondition $checkpointOrderingRejected 'Completing a checkpoint before it starts must fail.'
 
 Assert-SandboxCondition (
     -not (Test-RehearsalServiceRunning -Name 'HighTacSandboxRehearsalMissingService')

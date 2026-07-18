@@ -142,6 +142,7 @@ class InventoryService:
             source=source.value,
         )
         session.add(product)
+        session.flush()
         append_operation_log(
             session,
             event_type="product.created",

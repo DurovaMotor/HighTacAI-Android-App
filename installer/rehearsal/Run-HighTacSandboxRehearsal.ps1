@@ -57,6 +57,27 @@ function Add-RehearsalResult {
     }
 }
 
+function Start-RehearsalCheckpoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Step
+    )
+
+    $script:checks[$Step] = $false
+}
+
+function Complete-RehearsalCheckpoint {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Step
+    )
+
+    if (-not $script:checks.Contains($Step)) {
+        throw "Rehearsal checkpoint was not started: $Step"
+    }
+    $script:checks[$Step] = $true
+}
+
 function Set-RehearsalCount {
     param(
         [Parameter(Mandatory = $true)]
@@ -808,6 +829,7 @@ function Get-RehearsalBusinessState {
         [string]$BackupId
     )
 
+    Start-RehearsalCheckpoint -Step 'business_state_inventory_reads'
     $site = Invoke-RehearsalJsonApi -Method GET -Path '/settings/site' -WebSession $WebSession
     $station = Invoke-RehearsalJsonApi -Method GET -Path (
         '/stations/{0}' -f [Uri]::EscapeDataString($Expected.StationId)
@@ -836,7 +858,9 @@ function Get-RehearsalBusinessState {
         throw 'Expected business backup record was not returned by the API.'
     }
     $backup = $backups[0]
+    Complete-RehearsalCheckpoint -Step 'business_state_inventory_reads'
 
+    Start-RehearsalCheckpoint -Step 'business_state_record_match'
     $stateMatches = (
         $site.id -ceq $Expected.SiteId -and
         $site.name -ceq $Expected.SiteName -and
@@ -868,7 +892,9 @@ function Get-RehearsalBusinessState {
     if (-not $stateMatches) {
         throw 'Public API business state no longer matches the seeded records.'
     }
+    Complete-RehearsalCheckpoint -Step 'business_state_record_match'
 
+    Start-RehearsalCheckpoint -Step 'business_state_audit_match'
     $auditSpecs = @(
         [pscustomobject]@{ EventType = 'settings.site_updated'; EntityType = 'site'; EntityId = $Expected.SiteId },
         [pscustomobject]@{ EventType = 'station.created'; EntityType = 'station'; EntityId = $Expected.StationId },
@@ -878,6 +904,8 @@ function Get-RehearsalBusinessState {
     )
     $audits = @(
         foreach ($spec in $auditSpecs) {
+            $auditCheckpoint = 'business_state_audit_' + $spec.EventType.Replace('.', '_')
+            Start-RehearsalCheckpoint -Step $auditCheckpoint
             $path = '/operation-logs?event_type={0}&entity_type={1}&entity_id={2}&page_size=100' -f
                 [Uri]::EscapeDataString($spec.EventType),
                 [Uri]::EscapeDataString($spec.EntityType),
@@ -887,6 +915,7 @@ function Get-RehearsalBusinessState {
             if ($records.Count -lt 1) {
                 throw "Expected audit record is missing: $($spec.EventType)"
             }
+            Complete-RehearsalCheckpoint -Step $auditCheckpoint
             foreach ($record in $records) {
                 [pscustomobject][ordered]@{
                     id = [string]$record.id
@@ -901,7 +930,9 @@ function Get-RehearsalBusinessState {
         }
     )
     $audits = @($audits | Sort-Object event_type, id)
+    Complete-RehearsalCheckpoint -Step 'business_state_audit_match'
 
+    Start-RehearsalCheckpoint -Step 'business_state_projection'
     $projection = [ordered]@{
         site = [ordered]@{
             id = [string]$site.id
@@ -960,10 +991,12 @@ function Get-RehearsalBusinessState {
         backups = 1
         total = [long](6 + $audits.Count)
     }
-    return [pscustomobject]@{
+    $state = [pscustomobject]@{
         Fingerprint = Get-RehearsalCanonicalHash -Value $projection
         Counts = [pscustomobject]$recordCounts
     }
+    Complete-RehearsalCheckpoint -Step 'business_state_projection'
+    return $state
 }
 
 function Test-RehearsalUninstallState {

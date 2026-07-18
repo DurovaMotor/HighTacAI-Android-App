@@ -165,6 +165,34 @@ def test_request_boundaries_and_filter_enums_match_contract(
         _validate("ErrorEnvelope", response.json())
 
 
+def test_product_created_audit_is_filterable_by_product_id(harness) -> None:
+    auth = harness.login()
+    created = harness.client.post(
+        "/api/v1/products",
+        headers=harness.mutation_headers(auth),
+        json={
+            "product_code": "AUDIT-PRODUCT",
+            "product_name": "Audit product",
+        },
+    )
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+
+    audits = harness.client.get(
+        "/api/v1/operation-logs",
+        params={
+            "event_type": "product.created",
+            "entity_type": "product",
+            "entity_id": product_id,
+            "page_size": 100,
+        },
+    )
+
+    assert audits.status_code == 200, audits.text
+    assert len(audits.json()["items"]) == 1
+    assert audits.json()["items"][0]["product_id"] == product_id
+
+
 def test_nonempty_inventory_and_command_dtos_match_contract(
     harness,
 ) -> None:
