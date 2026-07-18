@@ -35,9 +35,15 @@ $launcherAst = [Management.Automation.Language.Parser]::ParseFile(
     [ref]$launcherParseErrors
 )
 Assert-SandboxCondition ($launcherParseErrors.Count -eq 0) 'Sandbox launcher must parse in Windows PowerShell 5.1.'
+$launcherText = [IO.File]::ReadAllText($launcherPath)
+Assert-SandboxCondition (
+    $launcherText -match '<ProtectedClient>Enable</ProtectedClient>' -and
+    $launcherText -match '<ClipboardRedirection>Disable</ClipboardRedirection>'
+) 'Sandbox must keep protected-client isolation and clipboard redirection disabled.'
 
 $requiredLauncherFunctionNames = @(
     'Get-RehearsalFileSha256',
+    'Get-RunningWindowsSandboxProcess',
     'Get-RehearsalRequiredJsonValue',
     'Assert-RehearsalInstallerSidecars',
     'Get-RehearsalInstallerArtifact',
@@ -55,6 +61,13 @@ foreach ($functionName in $requiredLauncherFunctionNames) {
     }
 }
 
+Assert-SandboxCondition (
+    $launcherText -match '(?s)if \(\$Launch\).*?Get-RunningWindowsSandboxProcess.*?refusing to launch another one'
+) 'Sandbox launch must refuse to start while any existing Windows Sandbox process is present.'
+Assert-SandboxCondition (
+    $launcherText -notmatch 'Start-Process[^\r\n]+-WindowStyle\s+Hidden'
+) 'Sandbox launch must remain visible so a stuck single instance can be inspected and closed.'
+
 $runnerTokens = $null
 $runnerParseErrors = $null
 $runnerAst = [Management.Automation.Language.Parser]::ParseFile(
@@ -67,6 +80,7 @@ Assert-SandboxCondition ($runnerParseErrors.Count -eq 0) 'Sandbox runner must pa
 $requiredFunctionNames = @(
     'New-RehearsalReport',
     'Get-RehearsalCanonicalHash',
+    'Test-RehearsalServiceRunning',
     'Test-RehearsalProcessDescendant',
     'Select-RehearsalPlatformProcess',
     'Test-RehearsalPlatformProcessRestarted',
@@ -86,6 +100,10 @@ foreach ($functionName in $requiredFunctionNames) {
         Invoke-Expression $definitions[0].Extent.Text
     }
 }
+
+Assert-SandboxCondition (
+    -not (Test-RehearsalServiceRunning -Name 'HighTacSandboxRehearsalMissingService')
+) 'Sandbox service readiness probe must return false when a service is absent under strict mode.'
 
 $tempBase = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
 $testRoot = [IO.Path]::GetFullPath((Join-Path $tempBase (

@@ -33,6 +33,21 @@ function Get-RehearsalFileSha256 {
     }
 }
 
+function Get-RunningWindowsSandboxProcess {
+    [CmdletBinding()]
+    param()
+
+    $sandboxProcessNames = @(
+        'WindowsSandbox',
+        'WindowsSandboxRemoteSession',
+        'WindowsSandboxServer',
+        'vmmemWindowsSandbox'
+    )
+    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.ProcessName -in $sandboxProcessNames
+    })
+}
+
 function Get-RehearsalRequiredJsonValue {
     param(
         [Parameter(Mandatory = $true)]
@@ -295,6 +310,13 @@ $result = [pscustomobject]@{
     Launched = [bool]$Launch
 }
 if ($Launch) {
+    $runningSandboxProcesses = @(Get-RunningWindowsSandboxProcess)
+    if ($runningSandboxProcesses.Count -gt 0) {
+        $processSummary = ($runningSandboxProcesses | ForEach-Object {
+            "$($_.ProcessName):$($_.Id)"
+        }) -join ', '
+        throw "A Windows Sandbox instance is already running; refusing to launch another one: $processSummary"
+    }
     Start-Process -FilePath $sandboxExecutable -ArgumentList @($wsbPath) | Out-Null
 }
 $result

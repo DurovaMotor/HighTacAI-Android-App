@@ -184,6 +184,18 @@ Assert-InstallerCondition ($aclTemplate -match 'user __MQTT_STATION_USERNAME__')
 $installText = Get-InstallerText -RelativePath 'windows\Install-HighTacPlatform.ps1'
 $preflightText = Get-InstallerText -RelativePath 'windows\Test-HighTacStaticIp.ps1'
 $issText = Get-InstallerText -RelativePath 'packaging\HighTacPlatform.iss'
+$upgradeText = Get-InstallerText -RelativePath 'windows\Upgrade-HighTacPlatform.ps1'
+$payloadBuildText = Get-InstallerText -RelativePath 'packaging\New-ReleasePayload.ps1'
+$installerBuildText = Get-InstallerText -RelativePath 'packaging\Build-Installer.ps1'
+foreach ($runtimeName in @('MSVCP140.dll', 'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll')) {
+    foreach ($requiredText in @($installText, $upgradeText, $installerBuildText, $issText)) {
+        Assert-InstallerCondition ($requiredText.Contains($runtimeName)) "$runtimeName must be required throughout install, upgrade, and installer compilation."
+    }
+    Assert-InstallerCondition ($payloadBuildText.Contains("'$runtimeName'")) "$runtimeName must be copied into the Mosquitto app-local runtime directory."
+}
+Assert-InstallerCondition (
+    $payloadBuildText -match '(?s)Get-AuthenticodeSignature.*?Microsoft Corporation.*?VersionInfo\.ProductVersion.*?VcRedistVersion'
+) 'App-local VC++ runtime DLLs must be Microsoft-signed and version-matched before packaging.'
 Assert-InstallerCondition ($installText -match '\[int\]\$MqttPort\s*=\s*1884') 'Install script must default MQTT to 1884.'
 Assert-InstallerCondition ($installText -match '\[int\]\$WebPort\s*=\s*8088') 'Install script must default the HighTac platform to 8088.'
 Assert-InstallerCondition ($installText -match '\[string\]\$LegacyRuntimeRoot' -and $installText -match 'Copy-HighTacLegacyRuntimeData') 'Install script must explicitly validate and copy a legacy server runtime source.'
@@ -200,6 +212,9 @@ Assert-InstallerCondition ($issText -match "DeleteDataOnUninstall := CompareText
 Assert-InstallerCondition ($issText -match 'Test-HighTacStaticIp\.ps1') 'Inno must run network preflight before installation.'
 Assert-InstallerCondition ($issText -match 'CurUninstallStepChanged' -and $issText -match 'HighTac service cleanup failed') 'Inno must fail explicitly when checked service cleanup fails.'
 Assert-InstallerCondition ($issText -match 'HighTac deployment configuration failed') 'Inno must fail explicitly when checked deployment configuration fails.'
+Assert-InstallerCondition ($issText -match '(?s)if not IsRehearsalMode\(\) then.*?VC_redist\.x64\.exe') 'Windows Sandbox rehearsal must skip the VC++ Burn bootstrapper that cannot extract its attached container there.'
+Assert-InstallerCondition ($issText -match 'PostInstallFailed\s*:=\s*True' -and $issText -match '(?s)function GetCustomSetupExitCode\(\): Integer;.*?if PostInstallFailed then\s*Result := 1') 'Silent post-install failures must propagate a nonzero installer process exit code through the documented Inno event.'
+Assert-InstallerCondition ($issText -notmatch 'ExitProcess@kernel32') 'Installer exit handling must not bypass Inno cleanup through kernel32 ExitProcess.'
 Assert-InstallerCondition (([regex]::Matches($installText, 'ConvertTo-HighTacStationId\s+-StationId\s+\$StationId')).Count -eq 2) 'Install script must validate both explicitly supplied and restored station IDs.'
 Assert-InstallerCondition ($commonModuleText.Contains("'^90A9F[0-9A-F]{7}$'")) 'PowerShell station ID validation must require the 90A9F prefix and 12 uppercase hexadecimal characters total.'
 Assert-InstallerCondition ($issText -match "Copy\(Value,\s*1,\s*5\)\s*=\s*'90A9F'" -and $issText -notmatch 'Uppercase\(Copy\(Value') 'Inno station ID validation must require an exact uppercase 90A9F prefix.'

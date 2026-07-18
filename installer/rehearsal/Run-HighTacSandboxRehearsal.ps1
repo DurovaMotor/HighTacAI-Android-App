@@ -206,6 +206,16 @@ function Test-RehearsalTcpPort {
     }
 }
 
+function Test-RehearsalServiceRunning {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    $service = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    return $null -ne $service -and $service.Status -eq 'Running'
+}
+
 function Test-RehearsalApiReady {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri "$baseUrl/health/ready" -TimeoutSec 3
@@ -1022,12 +1032,28 @@ try {
         "/WEBPORT=$webPort"
     )
     Invoke-RehearsalExecutable -Path $BaselineInstaller -Arguments $freshArguments -Step 'fresh_install'
-    Add-RehearsalResult -Step 'fresh_services_ready' -Passed (Wait-RehearsalCondition -Condition {
-        (Get-Service HighTacMqttBroker -ErrorAction SilentlyContinue).Status -eq 'Running' -and
-        (Get-Service HighTacPlatform -ErrorAction SilentlyContinue).Status -eq 'Running' -and
+    $freshServicesReady = Wait-RehearsalCondition -Condition {
+        (Test-RehearsalServiceRunning -Name 'HighTacMqttBroker') -and
+        (Test-RehearsalServiceRunning -Name 'HighTacPlatform') -and
         (Test-RehearsalTcpPort -Port $mqttPort) -and
         (Test-RehearsalApiReady)
-    } -TimeoutSeconds 90)
+    } -TimeoutSeconds 90
+    $checks['fresh_broker_running'] = [bool](Test-RehearsalServiceRunning -Name 'HighTacMqttBroker')
+    $checks['fresh_platform_running'] = [bool](Test-RehearsalServiceRunning -Name 'HighTacPlatform')
+    $checks['fresh_mqtt_listening'] = [bool](Test-RehearsalTcpPort -Port $mqttPort)
+    $checks['fresh_api_ready'] = [bool](Test-RehearsalApiReady)
+    $checks['fresh_install_root_present'] = [bool](Test-Path -LiteralPath $installRoot -PathType Container)
+    $checks['fresh_data_root_present'] = [bool](Test-Path -LiteralPath $dataRoot -PathType Container)
+    $checks['fresh_install_state_present'] = [bool](Test-Path -LiteralPath (
+        Join-Path $dataRoot 'config\install-state.json'
+    ) -PathType Leaf)
+    $checks['fresh_broker_service_installed'] = [bool]($null -ne (
+        Get-Service -Name 'HighTacMqttBroker' -ErrorAction SilentlyContinue
+    ))
+    $checks['fresh_platform_service_installed'] = [bool]($null -ne (
+        Get-Service -Name 'HighTacPlatform' -ErrorAction SilentlyContinue
+    ))
+    Add-RehearsalResult -Step 'fresh_services_ready' -Passed $freshServicesReady
 
     $serviceModels = @(Get-CimInstance Win32_Service -Filter "Name='HighTacMqttBroker' OR Name='HighTacPlatform'")
     Add-RehearsalResult -Step 'automatic_start' -Passed (

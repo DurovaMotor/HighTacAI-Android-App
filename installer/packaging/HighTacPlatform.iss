@@ -23,6 +23,9 @@
 #if !FileExists(ReleasePayload + "\mosquitto\mosquitto_passwd.exe")
   #error "Missing official Mosquitto credential utility: mosquitto\mosquitto_passwd.exe"
 #endif
+#if !FileExists(ReleasePayload + "\mosquitto\MSVCP140.dll") || !FileExists(ReleasePayload + "\mosquitto\VCRUNTIME140.dll") || !FileExists(ReleasePayload + "\mosquitto\VCRUNTIME140_1.dll")
+  #error "Missing signed app-local Microsoft VC++ runtime DLLs required by Mosquitto on a clean Windows installation."
+#endif
 #if !FileExists(ReleasePayload + "\service\HighTacPlatform.exe") || !FileExists(ReleasePayload + "\service\HighTacMqttBroker.exe")
   #error "Missing renamed WinSW x64 wrappers in the release payload."
 #endif
@@ -91,6 +94,7 @@ var
   DeleteDataOnUninstall: Boolean;
   ServicesPreparedForUpgrade: Boolean;
   DependencyRestartRequired: Boolean;
+  PostInstallFailed: Boolean;
 
 function IsOwnedServiceInstalled(const ServiceName: String): Boolean;
 begin
@@ -138,6 +142,7 @@ begin
   UpgradeDetected := DetectUpgrade();
   ServicesPreparedForUpgrade := False;
   DependencyRestartRequired := False;
+  PostInstallFailed := False;
 
   ConfigurationPage := CreateInputQueryPage(
     wpSelectDir,
@@ -355,15 +360,24 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
-    ResultCode := -1;
-    DependencyPath := ExpandConstant('{app}\dependencies\VC_redist.x64.exe');
-    WizardForm.StatusLabel.Caption := 'Installing Microsoft Visual C++ runtime dependency...';
-    if not Exec(DependencyPath, '/install /quiet /norestart', ExpandConstant('{app}\dependencies'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-      RaiseException('Could not launch the Microsoft Visual C++ runtime installer.');
-    if (ResultCode <> 0) and (ResultCode <> 1638) and (ResultCode <> 3010) then
-      RaiseException(Format('Microsoft Visual C++ runtime installation failed with exit code %d.', [ResultCode]));
-    if ResultCode = 3010 then
-      DependencyRestartRequired := True;
+    if not IsRehearsalMode() then
+    begin
+      ResultCode := -1;
+      DependencyPath := ExpandConstant('{app}\dependencies\VC_redist.x64.exe');
+      WizardForm.StatusLabel.Caption := 'Installing Microsoft Visual C++ runtime dependency...';
+      if not Exec(DependencyPath, '/install /quiet /norestart', ExpandConstant('{app}\dependencies'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      begin
+        PostInstallFailed := True;
+        RaiseException('Could not launch the Microsoft Visual C++ runtime installer.');
+      end;
+      if (ResultCode <> 0) and (ResultCode <> 1638) and (ResultCode <> 3010) then
+      begin
+        PostInstallFailed := True;
+        RaiseException(Format('Microsoft Visual C++ runtime installation failed with exit code %d.', [ResultCode]));
+      end;
+      if ResultCode = 3010 then
+        DependencyRestartRequired := True;
+    end;
 
     if UpgradeDetected then
     begin
@@ -397,7 +411,10 @@ begin
     end;
     if not RunPowerShellScript(DeploymentScript, DeploymentArguments, ResultCode) or
        (ResultCode <> 0) then
+    begin
+      PostInstallFailed := True;
       RaiseException(Format('HighTac deployment configuration failed with exit code %d. Review setup and ProgramData logs before retrying.', [ResultCode]));
+    end;
   end;
 end;
 
@@ -417,6 +434,14 @@ begin
     Exec(ServiceControl, 'start HighTacMqttBroker', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
     Exec(ServiceControl, 'start HighTacPlatform', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
+end;
+
+function GetCustomSetupExitCode(): Integer;
+begin
+  if PostInstallFailed then
+    Result := 1
+  else
+    Result := 0;
 end;
 
 function InitializeUninstall(): Boolean;

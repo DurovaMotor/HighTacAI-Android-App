@@ -109,6 +109,21 @@ class LightFindingViewModelTest {
     }
 
     @Test
+    fun recoveredPlatformClearsStaleUnavailableMessage() {
+        val repository = FakePlatformRepository(unavailable = true)
+        val scope = testScope()
+        val viewModel = viewModel(repository, scope)
+
+        assertEquals("后台不可用，写操作已关闭。", viewModel.uiState.inputMessage)
+
+        repository.publishAccess(PlatformApiAvailability.AVAILABLE)
+
+        assertTrue(viewModel.uiState.endpointVerified)
+        assertNull(viewModel.uiState.inputMessage)
+        scope.cancel()
+    }
+
+    @Test
     fun staleCachedBindingRemainsVisibleWithoutEnablingWriteOrScanGate() {
         val cached = remoteBinding("cached", "PRODUCT-A", "AD1000165FC2")
         val repository = FakePlatformRepository(
@@ -411,6 +426,16 @@ private class FakePlatformRepository(
     }
 
     override fun stopRealtime() = Unit
+
+    fun publishAccess(apiAvailability: PlatformApiAvailability) {
+        mutableAccess.value = PlatformAccessState(
+            apiAvailability = apiAvailability,
+            deviceAuthorization = PlatformDeviceAuthorization.APPROVED,
+            lastVerifiedAt = NOW.takeIf {
+                apiAvailability == PlatformApiAvailability.AVAILABLE
+            }
+        )
+    }
 
     fun publishFreshSnapshots() {
         mutableProducts.value = mutableProducts.value.copy(

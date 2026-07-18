@@ -52,7 +52,7 @@ Immutable application payload:
 ```text
 C:\Program Files\HighTac\Platform\
   server\                       PyInstaller one-folder backend and Web dist
-  mosquitto\                    curated official Mosquitto executables/DLLs
+  mosquitto\                    curated Mosquitto files plus signed app-local VC++ runtime DLLs
   service\                      renamed WinSW wrappers and XML
   dependencies\                 signed VC_redist.x64.exe
   tools\                        deployment, launcher, and health scripts
@@ -225,7 +225,9 @@ Upgrades and reinstalls always preserve that managed set.
   `%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe`;
 - official Mosquitto under `%ProgramFiles%\Mosquitto`;
 - ignored `installer\build\vendor\...\WinSW-x64.exe` and its actual license;
-- a signed Microsoft `VC_redist.x64.exe` in the Windows Package Cache.
+- a signed Microsoft `VC_redist.x64.exe` in the Windows Package Cache; the
+  matching signed app-local runtime DLLs are taken from the packaged backend
+  and copied beside Mosquitto for clean-Windows startup.
 
 No product EULA is invented. `-ProductLicenseFile` is optional and creates an
 installer license page only when the release owner supplies approved terms.

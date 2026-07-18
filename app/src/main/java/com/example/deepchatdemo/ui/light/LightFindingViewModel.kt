@@ -800,7 +800,10 @@ class LightFindingViewModel(
                             PlatformApiAvailability.CONTRACT_INCOMPATIBLE ->
                             "后台响应与客户端合同不兼容，写操作已关闭。"
                         access.apiAvailability == PlatformApiAvailability.UNAVAILABLE ->
-                            "后台不可用，写操作已关闭。"
+                            PLATFORM_UNAVAILABLE_MESSAGE
+                        access.apiAvailability == PlatformApiAvailability.AVAILABLE &&
+                            access.deviceAuthorization == PlatformDeviceAuthorization.APPROVED &&
+                            uiState.inputMessage == PLATFORM_UNAVAILABLE_MESSAGE -> null
                         else -> uiState.inputMessage
                     }
                 )
@@ -1188,7 +1191,7 @@ class LightFindingViewModel(
                 uiState.backendStatus == PlatformBackendUiStatus.CONTRACT_INCOMPATIBLE ->
                     "后台合同不兼容，写操作已关闭。"
                 uiState.backendStatus == PlatformBackendUiStatus.UNAVAILABLE ->
-                    "后台不可用，写操作已关闭。"
+                    PLATFORM_UNAVAILABLE_MESSAGE
                 !uiState.connectionEnabled -> "请先连接 HighTac Platform。"
                 else -> "后台尚未完成身份验证，写操作已关闭。"
             }
@@ -1350,7 +1353,7 @@ private fun Exception.toUserMessage(): String {
             PlatformWriteClosedReason.API_NOT_VERIFIED ->
                 "后台尚未完成验证，写操作已关闭。"
             PlatformWriteClosedReason.API_UNAVAILABLE ->
-                "后台不可用，写操作已关闭。"
+                PLATFORM_UNAVAILABLE_MESSAGE
             PlatformWriteClosedReason.CONTRACT_INCOMPATIBLE ->
                 "后台合同不兼容，写操作已关闭。"
             PlatformWriteClosedReason.DEVICE_NOT_APPROVED ->
@@ -1377,3 +1380,4 @@ private const val MIGRATION_PREVIEW_STALE = "MIGRATION_PREVIEW_STALE"
 private const val DEFAULT_POLL_DELAY_MILLIS = 5_000L
 private const val PLATFORM_SYNCING_MESSAGE = "正在同步 HighTac Platform 快照。"
 private const val PLATFORM_SYNCED_MESSAGE = "HighTac Platform 快照已同步。"
+private const val PLATFORM_UNAVAILABLE_MESSAGE = "后台不可用，写操作已关闭。"

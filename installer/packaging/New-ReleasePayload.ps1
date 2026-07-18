@@ -59,6 +59,14 @@ $WinSWExecutable = [IO.Path]::GetFullPath($WinSWExecutable)
 $ProductLicenseFile = if ($ProductLicenseFile) { [IO.Path]::GetFullPath($ProductLicenseFile) } else { $null }
 $WinSWLicenseFile = [IO.Path]::GetFullPath($WinSWLicenseFile)
 $VcRedistExecutable = [IO.Path]::GetFullPath($VcRedistExecutable)
+$vcRuntimeFileNames = @(
+    'MSVCP140.dll',
+    'VCRUNTIME140.dll',
+    'VCRUNTIME140_1.dll'
+)
+$vcRuntimePaths = @($vcRuntimeFileNames | ForEach-Object {
+    Join-Path $PlatformBuildRoot "_internal\$_"
+})
 
 $requiredInputs = @(
     (Join-Path $PlatformBuildRoot 'HighTacPlatform.exe'),
@@ -71,6 +79,7 @@ $requiredInputs = @(
     $WinSWLicenseFile,
     $VcRedistExecutable
 )
+$requiredInputs += $vcRuntimePaths
 if ($ProductLicenseFile) {
     $requiredInputs += $ProductLicenseFile
 }
@@ -96,6 +105,24 @@ $actualVcVersion = (Get-Item -LiteralPath $VcRedistExecutable).VersionInfo.Produ
 if ([string]$actualVcVersion -ne $VcRedistVersion) {
     throw "VcRedistVersion '$VcRedistVersion' does not match the signed executable product version '$actualVcVersion'."
 }
+$vcRuntimeRecords = @(foreach ($runtimePath in $vcRuntimePaths) {
+    $runtimeItem = Get-Item -LiteralPath $runtimePath
+    $runtimeSignature = Get-AuthenticodeSignature -LiteralPath $runtimePath
+    if ($runtimeSignature.Status -ne 'Valid' -or
+        $null -eq $runtimeSignature.SignerCertificate -or
+        $runtimeSignature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') {
+        throw "App-local VC++ runtime must have a valid Microsoft Corporation Authenticode signature: $runtimePath"
+    }
+    if ([string]$runtimeItem.VersionInfo.ProductVersion -ne $VcRedistVersion) {
+        throw "App-local VC++ runtime '$($runtimeItem.Name)' does not match VcRedistVersion '$VcRedistVersion'."
+    }
+    [pscustomobject]@{
+        Name = $runtimeItem.Name
+        Path = $runtimeItem.FullName
+        Sha256 = (Get-FileHash -LiteralPath $runtimeItem.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        Signature = $runtimeSignature
+    }
+})
 $actualWinSWVersion = (Get-Item -LiteralPath $WinSWExecutable).VersionInfo.ProductVersion
 if ($actualWinSWVersion -and -not ([string]$actualWinSWVersion).StartsWith($WinSWVersion)) {
     throw "WinSWVersion '$WinSWVersion' does not match the executable product version '$actualWinSWVersion'."
@@ -126,6 +153,9 @@ foreach ($vendorExecutable in @('mosquitto.exe', 'mosquitto_passwd.exe')) {
 }
 Get-ChildItem -LiteralPath $MosquittoRoot -Filter '*.dll' -File | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $OutputRoot 'mosquitto') -Force
+}
+foreach ($runtime in $vcRuntimeRecords) {
+    Copy-Item -LiteralPath $runtime.Path -Destination (Join-Path $OutputRoot 'mosquitto') -Force
 }
 
 Copy-Item -LiteralPath $WinSWExecutable -Destination (Join-Path $OutputRoot 'service\HighTacPlatform.exe') -Force
@@ -163,6 +193,9 @@ $utf8WithoutBom = New-Object Text.UTF8Encoding($false)
 [IO.File]::WriteAllText((Join-Path $OutputRoot 'licenses\THIRD-PARTY-NOTICES.md'), $notices, $utf8WithoutBom)
 
 $vcHash = (Get-FileHash -LiteralPath $VcRedistExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
+$vcRuntimeNoticeLines = ($vcRuntimeRecords | ForEach-Object {
+    "App-local file: $($_.Name); SHA-256: $($_.Sha256); signer: $($_.Signature.SignerCertificate.Subject)"
+}) -join "`r`n"
 $vcNotice = @"
 Microsoft Visual C++ Redistributable component record
 
@@ -172,6 +205,7 @@ SHA-256: $vcHash
 Authenticode signer: $($vcSignature.SignerCertificate.Subject)
 Authenticode status at build time: $($vcSignature.Status)
 Runtime role: native dependency for packaged Windows components
+$vcRuntimeNoticeLines
 
 This file records build provenance only. It is not a license grant and does not
 invent or replace Microsoft license terms. Microsoft terms govern use and
@@ -211,6 +245,14 @@ $buildManifest = [ordered]@{
             sha256 = $vcHash
             authenticode_status = [string]$vcSignature.Status
             signer = [string]$vcSignature.SignerCertificate.Subject
+            app_local_runtime_files = @($vcRuntimeRecords | ForEach-Object {
+                [ordered]@{
+                    path = "mosquitto/$($_.Name)"
+                    sha256 = $_.Sha256
+                    authenticode_status = [string]$_.Signature.Status
+                    signer = [string]$_.Signature.SignerCertificate.Subject
+                }
+            })
         }
     )
 }
