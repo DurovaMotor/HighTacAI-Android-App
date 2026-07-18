@@ -561,6 +561,96 @@ function Uninstall-HighTacWinSWService {
     }
 }
 
+function Get-HighTacProcessByExecutablePath {
+    [CmdletBinding()]
+    [OutputType([Diagnostics.Process])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$ExecutablePath
+    )
+
+    $expectedPaths = @{}
+    $processNames = @{}
+    foreach ($path in $ExecutablePath) {
+        $normalizedPath = Resolve-HighTacFullPath -Path $path
+        $expectedPaths[$normalizedPath.ToUpperInvariant()] = $true
+        $processNames[[IO.Path]::GetFileNameWithoutExtension($normalizedPath)] = $true
+    }
+
+    $matchingProcesses = @{}
+    foreach ($processName in $processNames.Keys) {
+        foreach ($process in @(Get-Process -Name $processName -ErrorAction SilentlyContinue)) {
+            try {
+                $normalizedProcessPath = Resolve-HighTacFullPath -Path $process.Path
+            }
+            catch {
+                continue
+            }
+            if ($expectedPaths.ContainsKey($normalizedProcessPath.ToUpperInvariant())) {
+                $matchingProcesses[[int]$process.Id] = $process
+            }
+        }
+    }
+
+    return @($matchingProcesses.Values)
+}
+
+function Stop-HighTacProcessByExecutablePath {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$ExecutablePath,
+
+        [ValidateRange(1, 120)]
+        [int]$GracefulTimeoutSeconds = 10,
+
+        [ValidateRange(1, 120)]
+        [int]$TerminationTimeoutSeconds = 10
+    )
+
+    $normalizedPaths = @($ExecutablePath | ForEach-Object {
+        Resolve-HighTacFullPath -Path $_
+    })
+    $gracefulDeadline = [DateTime]::UtcNow.AddSeconds($GracefulTimeoutSeconds)
+    do {
+        $runningProcesses = @(Get-HighTacProcessByExecutablePath -ExecutablePath $normalizedPaths)
+        if ($runningProcesses.Count -eq 0) {
+            return
+        }
+        if ([DateTime]::UtcNow -lt $gracefulDeadline) {
+            Start-Sleep -Milliseconds 250
+        }
+    } while ([DateTime]::UtcNow -lt $gracefulDeadline)
+
+    foreach ($runningProcess in $runningProcesses) {
+        # Re-read and re-check the executable path immediately before termination.
+        $verifiedProcess = @(Get-HighTacProcessByExecutablePath -ExecutablePath $normalizedPaths | Where-Object {
+            $_.Id -eq $runningProcess.Id
+        }) | Select-Object -First 1
+        if ($null -ne $verifiedProcess -and $PSCmdlet.ShouldProcess(
+            "PID $($verifiedProcess.Id)",
+            'Terminate a lingering HighTac-owned process after its service stopped'
+        )) {
+            Stop-Process -InputObject $verifiedProcess -Force -ErrorAction Stop
+        }
+    }
+
+    $terminationDeadline = [DateTime]::UtcNow.AddSeconds($TerminationTimeoutSeconds)
+    do {
+        $runningProcesses = @(Get-HighTacProcessByExecutablePath -ExecutablePath $normalizedPaths)
+        if ($runningProcesses.Count -eq 0) {
+            return
+        }
+        if ([DateTime]::UtcNow -lt $terminationDeadline) {
+            Start-Sleep -Milliseconds 250
+        }
+    } while ([DateTime]::UtcNow -lt $terminationDeadline)
+
+    throw "HighTac-owned processes did not exit after service removal: $($normalizedPaths -join ', ')"
+}
+
 function Test-HighTacTcpPort {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -838,6 +928,7 @@ Export-ModuleMember -Function @(
     'Protect-HighTacPath',
     'Resolve-HighTacFullPath',
     'Start-HighTacService',
+    'Stop-HighTacProcessByExecutablePath',
     'Stop-HighTacService',
     'Test-HighTacAdministrator',
     'Test-HighTacLocalTcpListener',

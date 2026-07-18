@@ -48,6 +48,11 @@ Uninstall-HighTacWinSWService `
     -ServiceName 'HighTacMqttBroker' `
     -Confirm:$false
 
+Stop-HighTacProcessByExecutablePath -ExecutablePath @(
+    (Join-Path $InstallRoot 'server\HighTacPlatform.exe'),
+    (Join-Path $InstallRoot 'mosquitto\mosquitto.exe')
+) -Confirm:$false
+
 & (Join-Path $PSScriptRoot 'Set-HighTacFirewall.ps1') -Action Remove -Confirm:$false | Out-Null
 
 if ($deleteData -and (Test-Path -LiteralPath $DataRoot)) {

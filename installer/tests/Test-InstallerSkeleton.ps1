@@ -162,6 +162,18 @@ Assert-InstallerCondition ($commonModuleText -match '\[IO\.FileShare\]::Read' -a
 $uninstallText = Get-InstallerText -RelativePath 'windows\Uninstall-HighTacPlatform.ps1'
 Assert-InstallerCondition ($uninstallText -match '\$deleteData\s*=\s*\[bool\]\$RemoveData') 'Uninstall must preserve ProgramData unless RemoveData is explicit.'
 Assert-InstallerCondition ($uninstallText -match 'Assert-HighTacSafeRoot') 'Recursive uninstall deletion must verify the resolved HighTac root.'
+Assert-InstallerCondition (
+    $commonModuleText -match '(?s)function Get-HighTacProcessByExecutablePath.*?Resolve-HighTacFullPath -Path \$path.*?Resolve-HighTacFullPath -Path \$process\.Path.*?ContainsKey\(\$normalizedProcessPath\.ToUpperInvariant\(\)\)' -and
+    $commonModuleText -match '(?s)function Stop-HighTacProcessByExecutablePath.*?GracefulTimeoutSeconds.*?Get-HighTacProcessByExecutablePath.*?Stop-Process -InputObject \$verifiedProcess -Force'
+) 'Lingering process cleanup must normalize and exactly compare full executable paths before forced termination.'
+Assert-InstallerCondition (
+    $uninstallText.Contains("Join-Path `$InstallRoot 'server\HighTacPlatform.exe'") -and
+    $uninstallText.Contains("Join-Path `$InstallRoot 'mosquitto\mosquitto.exe'") -and
+    $uninstallText -match 'Stop-HighTacProcessByExecutablePath -ExecutablePath'
+) 'Uninstall may terminate only the HighTac backend and bundled broker executable paths after service removal.'
+Assert-InstallerCondition (
+    $uninstallText -notmatch 'Stop-Process\s+-(?:Name|Id)\s+[^\r\n]*(?:mosquitto|HighTacPlatform)'
+) 'Uninstall must never terminate HighTac processes by name or an unverified process ID.'
 
 $platformTemplate = Get-InstallerText -RelativePath 'config\platform.yaml.template'
 $environmentTemplate = Get-InstallerText -RelativePath 'config\platform.env.template'
