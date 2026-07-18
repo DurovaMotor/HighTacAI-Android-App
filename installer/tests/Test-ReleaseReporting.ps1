@@ -39,7 +39,11 @@ function Write-InstallerSidecars {
         [string]$DistributionTarget,
 
         [Parameter(Mandatory = $true)]
-        [string]$DistributionClass
+        [string]$DistributionClass,
+
+        [string]$SourceCommit,
+
+        [bool]$SourceWorktreeClean = $true
     )
 
     $hash = (Get-FileHash -LiteralPath $InstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -48,10 +52,15 @@ function Write-InstallerSidecars {
         "$hash *$([IO.Path]::GetFileName($InstallerPath))`n",
         (New-Object Text.UTF8Encoding($false))
     )
+    if (-not $SourceCommit) {
+        $SourceCommit = ([string](& git -C $repositoryRoot rev-parse HEAD)).Trim().ToLowerInvariant()
+    }
     $metadata = [ordered]@{
         schema_version = 1
         product_version = '2.0.0'
         expected_git_tag = 'v2.0.0'
+        source_commit = $SourceCommit
+        source_worktree_clean = $SourceWorktreeClean
         artifact = [IO.Path]::GetFileName($InstallerPath)
         sha256 = $hash
         distribution_target = $DistributionTarget
@@ -155,7 +164,51 @@ namespace $namespace {
     Assert-ReleaseReportCondition ($jsonReport.distribution_target -ceq 'internal_lan') 'Report must preserve the internal-LAN target.'
     Assert-ReleaseReportCondition ($jsonReport.artifacts.windows_installer.distribution_class -ceq 'internal_lan_unsigned') 'Report must preserve the unsigned internal-LAN classification.'
     Assert-ReleaseReportCondition ($jsonReport.artifacts.windows_installer.authenticode_status -ceq 'NotSigned') 'Report must state that the internal-LAN fixture is not Authenticode signed.'
+    Assert-ReleaseReportCondition ($jsonReport.artifacts.windows_installer.source_commit -ceq ([string](& git -C $repositoryRoot rev-parse HEAD)).Trim().ToLowerInvariant()) 'Report must preserve the installer source commit.'
+    Assert-ReleaseReportCondition ([bool]$jsonReport.artifacts.windows_installer.source_worktree_clean) 'Report must preserve the clean installer source-worktree claim.'
     Assert-ReleaseReportCondition ($jsonReport.release_mode -ceq 'candidate') 'An explicitly allowed incomplete report must identify itself as a candidate.'
+
+    Write-InstallerSidecars `
+        -InstallerPath $installerPath `
+        -DistributionTarget 'internal_lan' `
+        -DistributionClass 'internal_lan_unsigned' `
+        -SourceCommit ('0' * 40)
+    $wrongSourceRejected = $false
+    try {
+        [void](& $reportScript `
+            -AppVersion '2.0.0' `
+            -InstallerPath $installerPath `
+            -RepositoryRoot $repositoryRoot `
+            -OutputRoot $testRoot `
+            -AllowReleaseCandidate)
+    }
+    catch {
+        $wrongSourceRejected = $_.Exception.Message -match 'source_commit does not match'
+    }
+    Assert-ReleaseReportCondition $wrongSourceRejected 'Release reporting must reject an installer built from another Git commit.'
+
+    Write-InstallerSidecars `
+        -InstallerPath $installerPath `
+        -DistributionTarget 'internal_lan' `
+        -DistributionClass 'internal_lan_unsigned' `
+        -SourceWorktreeClean:$false
+    $dirtySourceRejected = $false
+    try {
+        [void](& $reportScript `
+            -AppVersion '2.0.0' `
+            -InstallerPath $installerPath `
+            -RepositoryRoot $repositoryRoot `
+            -OutputRoot $testRoot)
+    }
+    catch {
+        $dirtySourceRejected = $_.Exception.Message -match 'dirty source worktree'
+    }
+    Assert-ReleaseReportCondition $dirtySourceRejected 'Formal release reporting must reject an installer built from a dirty source worktree.'
+
+    Write-InstallerSidecars `
+        -InstallerPath $installerPath `
+        -DistributionTarget 'internal_lan' `
+        -DistributionClass 'internal_lan_unsigned'
 
     $powerShellExecutable = (Get-Process -Id $PID).Path
     $previousErrorActionPreference = $ErrorActionPreference
@@ -246,6 +299,46 @@ namespace $namespace {
         -ErrorPattern "manual_checks entry 'windows_reboot_autostart'.*Boolean value true" `
         -Message 'A fixed manual gate must not be bypassable by setting required_for_release to false.'
 
+    $invalidProviderWaiverPath = New-TestEvidenceFile -Name 'invalid-provider-waiver.json' -Mutator {
+        param($evidence)
+        $provider = @($evidence.manual_checks | Where-Object { [string]$_.id -ceq 'provider_credentials_rotated' })[0]
+        $provider.required_for_release = $false
+        $provider.status = 'external'
+        $provider.owner = 'user'
+        $provider.PSObject.Properties.Remove('waiver')
+    }
+    Assert-ReleaseEvidenceRejected `
+        -InstallerPath $installerPath `
+        -ApkPath $apkPath `
+        -EvidencePath $invalidProviderWaiverPath `
+        -ErrorPattern "provider_credentials_rotated.*waiver" `
+        -Message 'Provider revocation verification must not become non-gating without a complete explicit user waiver.'
+
+    foreach ($invalidWaiver in @(
+        [pscustomobject]@{ Name = 'waiver-not-accepted.json'; Property = 'accepted'; Value = $false; Pattern = 'provider_credentials_rotated.*waiver' },
+        [pscustomobject]@{ Name = 'waiver-wrong-owner.json'; Property = 'owner'; Value = 'release-team'; Pattern = 'provider_credentials_rotated.*waiver' },
+        [pscustomobject]@{ Name = 'waiver-invalid-time.json'; Property = 'accepted_at'; Value = 'not-a-timestamp'; Pattern = 'provider_credentials_rotated.*waiver' },
+        [pscustomobject]@{ Name = 'waiver-empty-scope.json'; Property = 'scope'; Value = ''; Pattern = 'provider_credentials_rotated.*waiver' },
+        [pscustomobject]@{ Name = 'waiver-empty-risk.json'; Property = 'risk'; Value = ''; Pattern = 'provider_credentials_rotated.*waiver' }
+    )) {
+        $invalidWaiverPath = New-TestEvidenceFile -Name $invalidWaiver.Name -Mutator {
+            param($evidence)
+            $provider = @($evidence.manual_checks | Where-Object { [string]$_.id -ceq 'provider_credentials_rotated' })[0]
+            if ($invalidWaiver.Property -ceq 'owner') {
+                $provider.owner = $invalidWaiver.Value
+            }
+            else {
+                $provider.waiver.($invalidWaiver.Property) = $invalidWaiver.Value
+            }
+        }
+        Assert-ReleaseEvidenceRejected `
+            -InstallerPath $installerPath `
+            -ApkPath $apkPath `
+            -EvidencePath $invalidWaiverPath `
+            -ErrorPattern $invalidWaiver.Pattern `
+            -Message "Provider waiver must reject invalid field: $($invalidWaiver.Property)."
+    }
+
     $gatingScalePath = New-TestEvidenceFile -Name 'gating-scale.json' -Mutator {
         param($evidence)
         @($evidence.manual_checks | Where-Object { [string]$_.id -ceq 'scale_acceptance_10_phones_2000_tags' })[0].required_for_release = $true
@@ -255,12 +348,14 @@ namespace $namespace {
         -ApkPath $apkPath `
         -EvidencePath $gatingScalePath `
         -ErrorPattern "manual_checks entry 'scale_acceptance_10_phones_2000_tags'.*Boolean value false" `
-        -Message 'The user-owned scale acceptance must remain the sole explicitly non-gating manual check.'
+        -Message 'The user-owned scale acceptance must remain the unconditional non-gating manual check.'
 
     $buildScriptText = [IO.File]::ReadAllText($buildScript)
     Assert-ReleaseReportCondition ($buildScriptText -match '\[switch\]\$AllowReleaseCandidate') 'Build-Release.ps1 must expose an explicit release-candidate opt-in switch.'
     Assert-ReleaseReportCondition ($buildScriptText -match 'AllowReleaseCandidate\s*=\s*\[bool\]\$AllowReleaseCandidate') 'Build-Release.ps1 must forward candidate mode to release reporting.'
     Assert-ReleaseReportCondition ($buildScriptText -match '-not \$releaseReport\.ReleaseReady -and -not \$AllowReleaseCandidate') 'Build-Release.ps1 must retain its own formal release-ready gate.'
+    $reportScriptText = [IO.File]::ReadAllText($reportScript)
+    Assert-ReleaseReportCondition ($reportScriptText -match "providerCheck\.required_for_release[\s\S]+distributionTarget -cne 'internal_lan'") 'Provider credential waiver must remain restricted to internal-LAN releases.'
 
     Write-InstallerSidecars `
         -InstallerPath $installerPath `

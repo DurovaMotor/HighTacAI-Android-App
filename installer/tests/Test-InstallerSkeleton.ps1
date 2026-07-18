@@ -370,7 +370,9 @@ $releaseEvidence = $releaseEvidenceText | ConvertFrom-Json
 Assert-InstallerCondition ($releaseEvidence.product_version -ceq '2.0.0' -and $releaseEvidence.expected_git_tag -ceq 'v2.0.0' -and $releaseEvidence.distribution_target -ceq 'internal_lan') 'Release evidence must bind internal-LAN product 2.0.0 to expected tag v2.0.0.'
 Assert-InstallerCondition ($releaseEvidenceText -match '36f9c347-b233-42f0-b6cb-ec0cf0624eb5' -and $releaseEvidenceText -match '681e9718-1c10-448f-8e8c-a6976289dc84') 'Sanitized real station/light-strip command evidence must remain in the 2.0.0 release record.'
 $scaleEvidence = @($releaseEvidence.manual_checks | Where-Object { $_.id -eq 'scale_acceptance_10_phones_2000_tags' })
-Assert-InstallerCondition ($scaleEvidence.Count -eq 1 -and -not [bool]$scaleEvidence[0].required_for_release -and $scaleEvidence[0].owner -ceq 'user') 'Only the external 10-phone/2000-tag scale acceptance may remain user-owned and non-gating.'
+$providerEvidence = @($releaseEvidence.manual_checks | Where-Object { $_.id -eq 'provider_credentials_rotated' })
+Assert-InstallerCondition ($scaleEvidence.Count -eq 1 -and -not [bool]$scaleEvidence[0].required_for_release -and $scaleEvidence[0].owner -ceq 'user') 'The external 10-phone/2000-tag scale acceptance must remain user-owned and unconditionally non-gating.'
+Assert-InstallerCondition ($providerEvidence.Count -eq 1 -and -not [bool]$providerEvidence[0].required_for_release -and $providerEvidence[0].status -ceq 'external' -and $providerEvidence[0].owner -ceq 'user' -and [bool]$providerEvidence[0].waiver.accepted -and $providerEvidence[0].waiver.accepted_by -ceq 'user') 'A skipped provider-side revocation check must retain the explicit internal-LAN user risk waiver.'
 
 $artifactScanText = Get-InstallerText -RelativePath 'tests\Test-ReleaseArtifacts.ps1'
 Assert-InstallerCondition ($artifactScanText -match 'Mosquitto password hash entry' -and $artifactScanText -match 'rendered platform MQTT password') 'Artifact scan must detect hashed password files and rendered platform credentials.'

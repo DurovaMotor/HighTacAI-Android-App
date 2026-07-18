@@ -6,45 +6,45 @@
   "test_matrix": [
     {
       "id": "android_unit_and_room",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
-      "evidence": "Run :app:testDebugUnitTest and the Room instrumented or Robolectric suite on the final tagged commit."
+      "evidence": "Temurin JDK 21.0.11 ran :app:testDebugUnitTest --rerun-tasks on code commit 78c6c4f2f24f16125a650a0d853e5da39c8e81f3; 102 tests passed with 0 failures, 0 errors, and 0 skipped, including the Room/Robolectric platform cache suite. The later release-evidence-only commit does not change Android sources."
     },
     {
       "id": "android_lint_and_release_apk",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
-      "evidence": "Run lint and build the non-debuggable release APK; verify package ID, signing certificate, version 2.0.0, and embedded-secret scan."
+      "evidence": "On code commit 78c6c4f2f24f16125a650a0d853e5da39c8e81f3, :app:lintRelease and :app:assembleRelease --rerun-tasks passed. Lint reported 0 errors and 59 warnings. The APK is com.durovamotor.hightacai, versionCode 2, versionName 2.0.0, non-debuggable, APK Signature Scheme v2 verified, certificate SHA-256 c950fafabc390b681889ea97d36f2bbaf34c3b694fea22e8a84413f3b2d0ccc1, candidate APK SHA-256 66005f33e11c952e38a67821639073acb26390dbc67f1b459378b9ff825197b6. The final tag build repeats identity, signature, and hash reporting."
     },
     {
       "id": "backend_pytest",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
-      "evidence": "Run server pytest on the final tagged commit."
+      "evidence": "server/.venv/Scripts/python.exe -m pytest passed 98 of 98 tests on code commit 78c6c4f2f24f16125a650a0d853e5da39c8e81f3 in 152.71 seconds. The later release-evidence-only commit does not change backend sources."
     },
     {
       "id": "contract_validation",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
-      "evidence": "Validate OpenAPI, WebSocket examples, and MQTT fixtures on the final tagged commit."
+      "evidence": "contracts/validate_contracts.py passed on code commit 78c6c4f2f24f16125a650a0d853e5da39c8e81f3: 63 OpenAPI operations, 9 WebSocket event examples, and 5 MQTT payload fixtures were valid, including invalid-message rejection checks."
     },
     {
       "id": "web_unit_build_e2e",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
-      "evidence": "Run npm test, npm run build, and npm run test:e2e on the final tagged commit."
+      "evidence": "On code commit 78c6c4f2f24f16125a650a0d853e5da39c8e81f3, npm test passed 26 of 26 tests, npm run build passed TypeScript and Vite production compilation, and npm run test:e2e passed 35 of 35 Playwright tests across 1440/1920 desktop, 1024 tablet, and 390/320 mobile viewports. No test server remained running."
     },
     {
       "id": "installer_static",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
-      "evidence": "Run installer/tests/Test-InstallerSkeleton.ps1 on the final tagged commit."
+      "evidence": "Windows installer regression suites passed on code commit 78c6c4f2f24f16125a650a0d853e5da39c8e81f3 plus the release-evidence commit: skeleton 263 assertions, integration credentials 31, artifact scanner 32, release reporting 33, and Sandbox tooling 67. The new trusted-LAN startup repair includes an executable mock regression and retains Private plus LocalSubnet firewall scope; release reporting additionally binds final installer metadata to the clean tagged source commit and validates the explicit internal-LAN provider waiver."
     },
     {
       "id": "release_artifact_secret_scan",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
-      "evidence": "Run Test-ReleaseArtifacts.ps1 against the final 2.0.0 payload and confirm zero runtime databases, logs, passwords, keys, PFX files, or rendered secrets."
+      "evidence": "Test-ReleaseArtifacts.ps1 scanned the 78c6c4f code candidate payload (861 files, 14 binary containers, 155 archive entries) and release APK (567 archive entries); both reported SecretsFound=0 and no runtime database, log, password, key, PFX, or rendered secret. The final tagged build repeats this scanner and records final artifact hashes."
     }
   ],
   "manual_checks": [
@@ -57,59 +57,66 @@
     },
     {
       "id": "v2_packaged_android_network_smoke",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
       "owner": "HighTac release team",
-      "evidence": "Install the final 2.0.0 APK, join Durova-5G, verify API enrollment/sync, then issue confirmed LIGHT_ON and LIGHT_OFF commands through the packaged platform."
+      "evidence": "The non-debuggable com.durovamotor.hightacai 2.0.0 APK was installed on OnePlus PLF110 over Durova-5G and showed API reachable, device approved, Broker ready, station online, and realtime connected. Product 45121-AAA-FC-T / tag AD1000158A2A produced CONFIRMED LIGHT_ON 0b6e8d29-eff6-4ff4-a2d1-0b969c0fdcf8 and LIGHT_OFF c8cd1386-777a-41a7-8c8a-8f319e1263cb. Android sources did not change in the later Windows LAN repair commit; the exact final tag APK is installed again after final build."
     },
     {
       "id": "windows_host_upgrade_rehearsal",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
       "owner": "HighTac release team",
-      "evidence": "Run and record a successful 1.0.0 to 2.0.0 upgrade on an approved Windows host, including service health and data preservation. Historical failed host logs are diagnosis input, not passing evidence. Do not commit host logs or ProgramData."
+      "evidence": "Approved host NUCBOX_K6 completed the 1.0.0 to 2.0.0 upgrade with installer exit code 0, backup created, business counts preserved, SQLite integrity ok, both owned services and health checks ready, installed uninstall metadata matching the payload, and the independent localhost:1883 Mosquitto process left running and untouched. A subsequent clean-commit 78c6c4f candidate upgrade also exited 0 and installed the exact trusted-LAN repair launcher. Only sanitized facts are tracked; host logs and ProgramData are excluded."
     },
     {
       "id": "windows_sandbox_upgrade_rehearsal",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
       "owner": "HighTac release team",
-      "evidence": "Run the isolated Windows Sandbox flow with HighTacPlatform-1.0.0-x64.exe as the baseline and HighTacPlatform-2.0.0-x64.exe as the candidate; retain only the sanitized rehearsal JSON."
+      "evidence": "The isolated one-instance Windows Sandbox rehearsal passed 64 of 64 checks for the 1.0.0 baseline to 2.0.0 candidate path, including fresh install, service controls, upgrade data preservation, keep-data uninstall/reinstall, explicit delete-data uninstall, and zero included secrets. The final tagged installer is rehearsed once more and must match the candidate hash in the sanitized JSON."
     },
     {
       "id": "windows_reboot_autostart",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
       "owner": "HighTac release team",
-      "evidence": "Restart the approved Windows host and verify HighTacMqttBroker and HighTacPlatform return to Running/Automatic, API readiness succeeds, MQTT is reachable on 1884, and the real station reconnects without manual service startup."
+      "evidence": "Windows restarted at 2026-07-18 17:45:20+08:00. HighTacMqttBroker and HighTacPlatform returned Running/Automatic without manual service startup; 8088 readiness was READY for database, migrations 0003, and MQTT bridge, 1884 listened on all LAN addresses, and the Android UI showed Broker ready, station 90A9F7301427 online, and realtime connected. The reboot exposed Windows reclassifying the static Wi-Fi as Public; commit 78c6c4f added a LocalSystem repair limited to the recorded static adapter/IP. Installed-candidate regression changed WLAN 2 to Public, observed 8088/1884 blocked, restarted only HighTacPlatform, and automatically restored Private, API, broker, station, and realtime state while independent 1883 PID 5724 remained unchanged."
     },
     {
       "id": "two_android_client_sync",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
       "owner": "HighTac release team",
-      "evidence": "Use two independently enrolled Android installations to verify a binding or light-state change made by one client reaches the other through the central API/WebSocket path within the architecture acceptance window."
+      "evidence": "Two independently enrolled installations were used: debug device d73e5a64-eea9-4ebb-bacf-1c455b267fb7 created temporary binding 45121-AAA-FC-T to AD100016B397 at 16:23:59, production device 08dc8025-a68d-405d-bdc7-0b18d00199fc observed it at 16:26:40 and unbound it at 16:27:37, and debug observed removal at 16:28:25. The temporary binding was removed and existing field bindings were preserved."
     },
     {
       "id": "fault_injection_recovery",
-      "status": "pending",
+      "status": "passed",
       "required_for_release": true,
       "owner": "HighTac release team",
-      "evidence": "Verify and distinguish station power loss, MQTT broker stop/restart, API stop/restart, and Android Wi-Fi loss/rejoin; each component must recover without corrupting bindings or command state."
+      "evidence": "Recovery cases were distinguished and passed. Broker stop showed API reachable / broker unknown / station offline and recovered after only HighTacMqttBroker restarted. Platform stop showed API unreachable with cached binding reads and disabled writes, then resynchronized after only HighTacPlatform restarted. Android Wi-Fi loss showed API unreachable with cached reads and disabled writes, then rejoined Durova-5G and resynchronized. A real station power cycle created a new 192.168.1.106 MQTT session at 18:11:51 and subsequent LIGHT_ON b3b7d35c-995a-4ab9-8cff-efb69f129fe8 and LIGHT_OFF fd724af2-20a0-4db9-a8a7-a7ffdd92291c were CONFIRMED. A scoped 100-second station-only network isolation then verified the 60-second offline timeout at 18:33:26 while API and broker remained ready; the rule auto-removed at 18:33:53 with zero residue, the station reconnected at 18:34:12, and recovery LIGHT_ON 9d1038b6-2819-4f83-ac39-6d1a3ed6876c plus LIGHT_OFF 4cb7cb54-b3c4-4bf0-8234-62ace8b50f9c for AD1000158A2A were CONFIRMED with retry_count 0. SQLite integrity remained ok and bindings were preserved."
     },
     {
       "id": "provider_credentials_rotated",
-      "status": "pending",
-      "required_for_release": true,
-      "owner": "HighTac release team and provider account owner",
-      "evidence": "Revoke the OpenAI-compatible and JianDaoYun credentials that existed in a historical APK, configure replacement credentials only in the protected backend environment, and record provider-side revocation verification without recording any secret value."
+      "status": "external",
+      "required_for_release": false,
+      "owner": "user",
+      "waiver": {
+        "accepted": true,
+        "accepted_by": "user",
+        "accepted_at": "2026-07-18T18:36:00+08:00",
+        "scope": "Skip provider-console verification that historical OpenAI-compatible and JianDaoYun credentials were revoked for this internal_lan 2.0.0 release.",
+        "risk": "Historical credentials may remain valid until the provider account owner revokes them; artifact scans only prove that no credential value is shipped in the V2 APK or Windows payload."
+      },
+      "evidence": "The user explicitly instructed Codex to skip this provider-side verification on 2026-07-18. This entry does not claim that either historical credential was revoked. Replacement values remain only in the ACL-protected backend environment, and final APK/payload scans contain zero credential values. The waiver is limited to the internal_lan 2.0.0 release."
     },
     {
       "id": "scale_acceptance_10_phones_2000_tags",
       "status": "external",
       "required_for_release": false,
       "owner": "user",
-      "evidence": "The user will perform the final field-scale acceptance with 10 real Android phones and 2000 real light strips. This is the only user-owned acceptance item and is not represented as completed by Codex."
+      "evidence": "The user will perform the final field-scale acceptance with 10 real Android phones and 2000 real light strips. This remains the only user-owned field-scale acceptance item and is not represented as completed by Codex; the separate provider-credential entry is an explicit risk waiver, not a completed acceptance test."
     }
   ]
 }

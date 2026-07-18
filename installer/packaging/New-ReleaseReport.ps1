@@ -69,7 +69,9 @@ function Assert-FixedEvidenceCollection {
         [Parameter(Mandatory = $true)]
         [string]$Context,
 
-        [string[]]$NonGatingIds = @()
+        [string[]]$NonGatingIds = @(),
+
+        [string[]]$WaivableIds = @()
     )
 
     $actualIds = @($Entries | ForEach-Object {
@@ -103,6 +105,43 @@ function Assert-FixedEvidenceCollection {
         $entry = @($Entries | Where-Object { [string]$_.id -ceq $expectedId })[0]
         $requiredForRelease = Get-RequiredProperty $entry 'required_for_release' "$Context entry '$expectedId'"
         $mustGateRelease = $NonGatingIds -cnotcontains $expectedId
+        if ($WaivableIds -ccontains $expectedId -and
+            $requiredForRelease -is [bool] -and
+            -not [bool]$requiredForRelease) {
+            $status = [string](Get-RequiredProperty $entry 'status' "$Context entry '$expectedId'")
+            $owner = [string](Get-RequiredProperty $entry 'owner' "$Context entry '$expectedId'")
+            $waiver = Get-RequiredProperty $entry 'waiver' "$Context entry '$expectedId'"
+            $accepted = Get-RequiredProperty $waiver 'accepted' "$Context entry '$expectedId' waiver"
+            $acceptedBy = [string](Get-RequiredProperty $waiver 'accepted_by' "$Context entry '$expectedId' waiver")
+            $acceptedAt = [string](Get-RequiredProperty $waiver 'accepted_at' "$Context entry '$expectedId' waiver")
+            $scope = [string](Get-RequiredProperty $waiver 'scope' "$Context entry '$expectedId' waiver")
+            $risk = [string](Get-RequiredProperty $waiver 'risk' "$Context entry '$expectedId' waiver")
+            $acceptedAtValid = $false
+            if (-not [string]::IsNullOrWhiteSpace($acceptedAt)) {
+                try {
+                    [void][DateTimeOffset]::Parse(
+                        $acceptedAt,
+                        [Globalization.CultureInfo]::InvariantCulture,
+                        [Globalization.DateTimeStyles]::RoundtripKind
+                    )
+                    $acceptedAtValid = $true
+                }
+                catch {
+                    $acceptedAtValid = $false
+                }
+            }
+            if ($status -cne 'external' -or
+                $owner -cne 'user' -or
+                $accepted -isnot [bool] -or
+                -not [bool]$accepted -or
+                $acceptedBy -cne 'user' -or
+                -not $acceptedAtValid -or
+                [string]::IsNullOrWhiteSpace($scope) -or
+                [string]::IsNullOrWhiteSpace($risk)) {
+                throw "$Context entry '$expectedId' may be non-gating only with an explicit external user waiver containing accepted, accepted_by, a valid accepted_at timestamp, scope, and risk."
+            }
+            continue
+        }
         if ($requiredForRelease -isnot [bool] -or [bool]$requiredForRelease -ne $mustGateRelease) {
             throw "$Context entry '$expectedId' must set required_for_release to the Boolean value $($mustGateRelease.ToString().ToLowerInvariant())."
         }
@@ -113,6 +152,11 @@ if (-not $RepositoryRoot) {
     $RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 }
 $RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\')
+$gitCommit = Invoke-GitText -Arguments @('rev-parse', 'HEAD')
+if ([string]::IsNullOrWhiteSpace($gitCommit) -or $gitCommit -notmatch '^[0-9a-fA-F]{40,64}$') {
+    throw 'Unable to resolve the current Git commit for release reporting.'
+}
+$gitCommit = $gitCommit.ToLowerInvariant()
 $InstallerPath = [IO.Path]::GetFullPath($InstallerPath)
 if (-not (Test-Path -LiteralPath $InstallerPath -PathType Leaf)) {
     throw "Installer does not exist: $InstallerPath"
@@ -140,10 +184,22 @@ if (-not (Test-Path -LiteralPath $metadataPath -PathType Leaf)) {
     throw "Installer release metadata is missing: $metadataPath"
 }
 $installerMetadata = [IO.File]::ReadAllText($metadataPath) | ConvertFrom-Json
+$installerSourceCommit = [string](Get-RequiredProperty $installerMetadata 'source_commit' 'Installer release metadata')
+$installerSourceWorktreeClean = Get-RequiredProperty $installerMetadata 'source_worktree_clean' 'Installer release metadata'
 if ((Get-RequiredProperty $installerMetadata 'product_version' 'Installer release metadata') -cne $AppVersion -or
     (Get-RequiredProperty $installerMetadata 'expected_git_tag' 'Installer release metadata') -cne $expectedTag -or
     (Get-RequiredProperty $installerMetadata 'sha256' 'Installer release metadata') -cne $installerHash) {
     throw 'Installer release metadata does not match the requested version, Git tag, and SHA-256.'
+}
+if ($installerSourceCommit -notmatch '^[0-9a-fA-F]{40,64}$' -or
+    $installerSourceCommit.ToLowerInvariant() -cne $gitCommit) {
+    throw 'Installer release metadata source_commit does not match the current Git commit.'
+}
+if ($installerSourceWorktreeClean -isnot [bool]) {
+    throw 'Installer release metadata source_worktree_clean must be a Boolean value.'
+}
+if (-not [bool]$installerSourceWorktreeClean -and -not $AllowReleaseCandidate) {
+    throw 'Installer was built from a dirty source worktree and cannot be used for a formal release.'
 }
 $distributionTarget = [string](Get-RequiredProperty $installerMetadata 'distribution_target' 'Installer release metadata')
 $distributionClass = [string](Get-RequiredProperty $installerMetadata 'distribution_class' 'Installer release metadata')
@@ -242,15 +298,19 @@ if ($evidenceLoaded) {
         -Entries $manualChecks `
         -ExpectedIds $fixedManualCheckIds `
         -Context 'Release evidence manual_checks' `
-        -NonGatingIds $nonGatingManualCheckIds
+        -NonGatingIds $nonGatingManualCheckIds `
+        -WaivableIds @('provider_credentials_rotated')
 
     $scaleCheck = @($manualChecks | Where-Object { [string]$_.id -ceq 'scale_acceptance_10_phones_2000_tags' })[0]
     if ([string](Get-RequiredProperty $scaleCheck 'owner' "Release evidence entry 'scale_acceptance_10_phones_2000_tags'") -cne 'user') {
         throw 'The 10-phone/2000-tag scale acceptance must remain an external user-owned, non-release-gating check.'
     }
+    $providerCheck = @($manualChecks | Where-Object { [string]$_.id -ceq 'provider_credentials_rotated' })[0]
+    if (-not [bool]$providerCheck.required_for_release -and $distributionTarget -cne 'internal_lan') {
+        throw 'Provider credential revocation verification may be waived only for an internal_lan release.'
+    }
 }
 
-$gitCommit = Invoke-GitText -Arguments @('rev-parse', 'HEAD')
 $gitTags = @(Invoke-GitText -Arguments @('tag', '--points-at', 'HEAD') -split "`n" | Where-Object { $_ })
 $gitStatus = Invoke-GitText -Arguments @('status', '--porcelain')
 $gitClean = $null -ne $gitStatus -and [string]::IsNullOrWhiteSpace($gitStatus)
@@ -269,6 +329,7 @@ else {
 $releaseReady = $evidenceLoaded -and
     $null -ne $apkArtifact -and
     $signatureGatePassed -and
+    [bool]$installerSourceWorktreeClean -and
     $gitClean -and
     $expectedTagAtHead -and
     $requiredEvidencePassed
@@ -292,6 +353,8 @@ $report = [ordered]@{
         windows_installer = [ordered]@{
             file = [IO.Path]::GetFileName($InstallerPath)
             sha256 = $installerHash
+            source_commit = $installerSourceCommit.ToLowerInvariant()
+            source_worktree_clean = [bool]$installerSourceWorktreeClean
             distribution_class = $distributionClass
             authenticode_status = [string]$liveSignature.Status
             signer_subject = if ($liveSignature.SignerCertificate) { $liveSignature.SignerCertificate.Subject } else { $null }
@@ -354,7 +417,7 @@ foreach ($entry in $manualChecks) {
     [void]$markdown.AppendLine("| $(ConvertTo-MarkdownCell $entry.id) | $(ConvertTo-MarkdownCell $entry.status) | $([bool]$entry.required_for_release) | $(ConvertTo-MarkdownCell $entry.owner) | $(ConvertTo-MarkdownCell $entry.evidence) |")
 }
 [void]$markdown.AppendLine()
-[void]$markdown.AppendLine('Only the 10-phone/2000-light-strip scale acceptance is user-owned and outside the release gate.')
+[void]$markdown.AppendLine('The 10-phone/2000-light-strip field acceptance remains user-owned and outside the release gate. Provider-console revocation verification is separately recorded as an explicit internal-LAN user risk waiver, not as a completed check.')
 
 $markdownPath = Join-Path $OutputRoot "HighTacPlatform-$AppVersion-release-report.md"
 [IO.File]::WriteAllText(
