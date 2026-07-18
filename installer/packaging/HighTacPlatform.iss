@@ -263,6 +263,8 @@ begin
   PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   Parameters := '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' +
                 AddQuotes(ScriptPath) + ' ' + Arguments + ' -Force';
+  Log('HighTac PowerShell script: ' + ScriptPath);
+  Log('HighTac PowerShell non-secret arguments: ' + Arguments + ' -Force');
   Result := Exec(PowerShellPath, Parameters, ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
@@ -338,8 +340,10 @@ begin
     if not IsRehearsalMode() then
     begin
       ExtractTemporaryFile('Test-HighTacStaticIp.ps1');
-      PreflightArguments := '-InterfaceAlias ' + AddQuotes(GetInterfaceAlias('')) +
-                            ' -WebPort ' + GetWebPort('') + ' -MqttPort 1884';
+      PreflightArguments := '-WebPort ' + GetWebPort('') + ' -MqttPort 1884';
+      if GetInterfaceAlias('') <> '' then
+        PreflightArguments := '-InterfaceAlias ' + AddQuotes(GetInterfaceAlias('')) +
+                              ' ' + PreflightArguments;
       if not RunPowerShellScript(ExpandConstant('{tmp}\Test-HighTacStaticIp.ps1'), PreflightArguments, ResultCode) or
          (ResultCode <> 0) then
       begin
@@ -396,8 +400,10 @@ begin
                              ' -TemplateRoot ' + AddQuotes(ExpandConstant('{app}\templates')) +
                              ' -SiteName ' + AddQuotes(GetSiteName('')) +
                              ' -StationId ' + AddQuotes(GetStationId('')) +
-                             ' -InterfaceAlias ' + AddQuotes(GetInterfaceAlias('')) +
                              ' -WebPort ' + GetWebPort('') + ' -MqttPort 1884';
+      if GetInterfaceAlias('') <> '' then
+        DeploymentArguments := DeploymentArguments +
+                               ' -InterfaceAlias ' + AddQuotes(GetInterfaceAlias(''));
       LegacyRuntimePath := ExpandConstant('{app}\server\runtime');
       if DirExists(LegacyRuntimePath) then
         DeploymentArguments := DeploymentArguments +

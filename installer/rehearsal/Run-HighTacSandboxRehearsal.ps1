@@ -1027,7 +1027,7 @@ try {
         '/SUPPRESSMSGBOXES',
         '/NORESTART',
         '/REHEARSAL=1',
-        '/SITENAME=HighTac Sandbox',
+        '/SITENAME=HighTacSandbox',
         '/STATIONID=90A9F0000000',
         "/WEBPORT=$webPort"
     )

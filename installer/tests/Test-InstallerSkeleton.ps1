@@ -206,6 +206,10 @@ Assert-InstallerCondition ($installText -match 'Add-HighTacBootstrapAdminEnviron
 Assert-InstallerCondition ($serviceLauncherText -match "'HIGHTAC_BOOTSTRAP_ADMIN_USERNAME'" -and $serviceLauncherText -match "'HIGHTAC_BOOTSTRAP_ADMIN_PASSWORD'") 'Platform launcher must require protected bootstrap admin settings.'
 Assert-InstallerCondition ($preflightText -match 'HighTacMqttBroker') 'Port preflight must recognize only the owned broker service.'
 Assert-InstallerCondition ($issText -match '-MqttPort 1884') 'Inno installer must configure the HighTac broker on 1884.'
+Assert-InstallerCondition (
+    $issText -match "(?s)if GetInterfaceAlias\(''\) <> '' then\s+PreflightArguments := '-InterfaceAlias '" -and
+    $issText -match "(?s)if GetInterfaceAlias\(''\) <> '' then\s+DeploymentArguments := DeploymentArguments \+\s+' -InterfaceAlias '"
+) 'Inno must omit the InterfaceAlias switch when automatic adapter selection leaves it blank.'
 Assert-InstallerCondition ($issText -match '-Force' -and $issText -notmatch '-Confirm:\$false') 'Inno must use PowerShell 5.1-compatible noninteractive Force switches.'
 Assert-InstallerCondition ($issText -match 'MB_DEFBUTTON2') 'Inno uninstall prompt must default to preserving ProgramData.'
 Assert-InstallerCondition ($issText -match "DeleteDataOnUninstall := CompareText\(ExpandConstant\('\{param:DELETEDATA\|0\}'\), '1'\) = 0") 'Silent uninstall must preserve ProgramData unless DELETEDATA=1 is explicit.'
