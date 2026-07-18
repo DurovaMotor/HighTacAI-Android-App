@@ -58,6 +58,7 @@ Stop-HighTacProcessByExecutablePath -ExecutablePath @(
 if ($deleteData -and (Test-Path -LiteralPath $DataRoot)) {
     $verifiedDataRoot = Assert-HighTacSafeRoot -Path $DataRoot -Kind DataRoot
     if ($PSCmdlet.ShouldProcess($verifiedDataRoot, 'Permanently remove HighTac runtime data, credentials, databases, logs, and backups')) {
+        Enable-HighTacTreeRemoval -DataRoot $verifiedDataRoot -Confirm:$false
         Remove-Item -LiteralPath $verifiedDataRoot -Recurse -Force
     }
 }

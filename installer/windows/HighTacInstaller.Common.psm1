@@ -307,6 +307,38 @@ function Protect-HighTacPath {
     }
 }
 
+function Enable-HighTacTreeRemoval {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$DataRoot
+    )
+
+    $verifiedDataRoot = Assert-HighTacSafeRoot -Path $DataRoot -Kind DataRoot
+    if (-not (Test-Path -LiteralPath $verifiedDataRoot)) {
+        return
+    }
+
+    $rootItem = Get-Item -LiteralPath $verifiedDataRoot -Force
+    $descendants = @(Get-ChildItem -LiteralPath $verifiedDataRoot -Recurse -Force -ErrorAction Stop)
+    $allItems = @($rootItem) + $descendants
+    $reparsePoint = $allItems | Where-Object {
+        ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0
+    } | Select-Object -First 1
+    if ($null -ne $reparsePoint) {
+        throw "DataRoot contains a symbolic link or junction and cannot be removed: $($reparsePoint.FullName)"
+    }
+
+    if ($PSCmdlet.ShouldProcess(
+        $verifiedDataRoot,
+        'Grant LocalSystem and Administrators removal access to the protected HighTac data tree'
+    )) {
+        foreach ($item in $allItems) {
+            Protect-HighTacPath -Path $item.FullName -Confirm:$false
+        }
+    }
+}
+
 function Get-HighTacLegacyMosquittoPasswordEntry {
     [CmdletBinding()]
     param(
@@ -917,6 +949,7 @@ Export-ModuleMember -Function @(
     'ConvertTo-HighTacStationId',
     'ConvertTo-HighTacYamlString',
     'Copy-HighTacLegacyRuntimeData',
+    'Enable-HighTacTreeRemoval',
     'Get-HighTacLegacyMosquittoPasswordEntry',
     'Get-HighTacInstallState',
     'Get-HighTacRandomInteger',

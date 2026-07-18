@@ -174,6 +174,13 @@ Assert-InstallerCondition (
 Assert-InstallerCondition (
     $uninstallText -notmatch 'Stop-Process\s+-(?:Name|Id)\s+[^\r\n]*(?:mosquitto|HighTacPlatform)'
 ) 'Uninstall must never terminate HighTac processes by name or an unverified process ID.'
+Assert-InstallerCondition (
+    $commonModuleText -match '(?s)function Enable-HighTacTreeRemoval.*?Assert-HighTacSafeRoot -Path \$DataRoot -Kind DataRoot.*?Get-ChildItem -LiteralPath \$verifiedDataRoot -Recurse -Force -ErrorAction Stop.*?ReparsePoint.*?Protect-HighTacPath -Path \$item\.FullName' -and
+    $uninstallText -match '(?s)if \(\$deleteData.*?Enable-HighTacTreeRemoval -DataRoot \$verifiedDataRoot.*?Remove-Item -LiteralPath \$verifiedDataRoot -Recurse -Force'
+) 'Explicit delete-data uninstall must reject links and restore Administrators access across the protected DataRoot before recursive removal.'
+Assert-InstallerCondition (
+    $uninstallText -notmatch '(?s)if \(-not \$deleteData.*?Enable-HighTacTreeRemoval'
+) 'Keep-data uninstall must not relax protected ProgramData ACLs.'
 
 $platformTemplate = Get-InstallerText -RelativePath 'config\platform.yaml.template'
 $environmentTemplate = Get-InstallerText -RelativePath 'config\platform.env.template'
