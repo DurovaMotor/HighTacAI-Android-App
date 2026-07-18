@@ -1,5 +1,7 @@
 # HighTac AI 声光灯条寻物大版本需求分析
 
+> 状态：V1 历史需求归档。本文记录 HighTac Platform V2 实施前的 Android 直连 MQTT 方案，仅用于追溯，不代表当前架构。V2 以 `hightac-web-platform-architecture-plan.md` 和 `hightac-platform-operations.md` 为准：Android 只连接 HighTac Platform REST/WebSocket，不连接 MQTT，也不保存 MQTT 凭据。
+
 日期：2026-07-08
 
 分支：`codex/light-finding-requirements`

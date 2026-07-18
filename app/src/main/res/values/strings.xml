@@ -9,6 +9,6 @@
     <string name="price_empty_tip">输入编码、名称或车型开始查价。</string>
     <string name="price_no_results">未找到匹配结果</string>
     <string name="hightac_connected">HighTac AI 已连接</string>
-    <string name="hightac_key_missing">HighTac AI 密钥缺失</string>
+    <string name="hightac_approval_required">手机待后台审批</string>
     <string name="image_processing_failed">图片处理失败，请换一张图片重试。</string>
 </resources>

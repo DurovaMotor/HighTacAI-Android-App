@@ -241,7 +241,7 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
             HeaderBar(
                 selectedMode = selectedMode,
                 selectedReasoningEffort = viewModel.selectedReasoningEffort,
-                hasApiKey = viewModel.hasApiKey,
+                hasPlatformAccess = viewModel.hasPlatformAccess,
                 onModeSelected = { selectedMode = it },
                 onReasoningGlowIntensityChange = { reasoningEdgeGlowTarget = it },
                 onReasoningEffortSelected = viewModel::updateReasoningEffort
@@ -324,11 +324,8 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
                         LightFindingScreen(
                             uiState = lightFindingViewModel.uiState,
                             modifier = Modifier.fillMaxSize(),
+                            onServerUrlChange = lightFindingViewModel::onServerUrlChange,
                             onStationIdChange = lightFindingViewModel::onStationIdChange,
-                            onBrokerHostChange = lightFindingViewModel::onBrokerHostChange,
-                            onBrokerPortChange = lightFindingViewModel::onBrokerPortChange,
-                            onUsernameChange = lightFindingViewModel::onUsernameChange,
-                            onPasswordChange = lightFindingViewModel::onPasswordChange,
                             onItemCodeChange = lightFindingViewModel::onItemCodeChange,
                             onTagIdChange = lightFindingViewModel::onTagIdChange,
                             onSaveAndConnect = lightFindingViewModel::saveAndConnect,
@@ -336,10 +333,20 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
                             onToggleSettings = lightFindingViewModel::toggleSettings,
                             onBindCurrent = lightFindingViewModel::bindCurrent,
                             onLightCurrentItem = lightFindingViewModel::lightByCurrentItem,
+                            onTurnOffCurrentItem = lightFindingViewModel::turnOffByCurrentItem,
+                            onTurnOffAll = lightFindingViewModel::turnOffAllBound,
+                            onUnbind = lightFindingViewModel::unbind,
                             onSelectColor = lightFindingViewModel::selectColor,
-                            onBeepChange = lightFindingViewModel::setBeep,
-                            onFlashingChange = lightFindingViewModel::setFlashing,
-                            onDurationChange = lightFindingViewModel::setDuration
+                            onSelectLegacyCandidate =
+                                lightFindingViewModel::selectLegacyMigrationCandidate,
+                            onConfirmLegacyMigration =
+                                lightFindingViewModel::confirmLegacyBindingMigration,
+                            onAcknowledgeLegacyConflicts =
+                                lightFindingViewModel::acknowledgeLegacyMigrationConflicts,
+                            onDismissLegacyMigration =
+                                lightFindingViewModel::dismissLegacyMigrationPreview,
+                            onScreenActiveChanged =
+                                lightFindingViewModel::onScreenActiveChanged
                         )
                     }
                 }
@@ -397,7 +404,7 @@ private fun MessageRow(message: ChatMessage) {
 private fun HeaderBar(
     selectedMode: AppMode,
     selectedReasoningEffort: ReasoningEffort,
-    hasApiKey: Boolean,
+    hasPlatformAccess: Boolean,
     onModeSelected: (AppMode) -> Unit,
     onReasoningGlowIntensityChange: (Float) -> Unit,
     onReasoningEffortSelected: (ReasoningEffort) -> Unit
@@ -437,7 +444,7 @@ private fun HeaderBar(
         Spacer(Modifier.height(10.dp))
         ModeSwitch(
             selectedMode = selectedMode,
-            hasApiKey = hasApiKey,
+            hasPlatformAccess = hasPlatformAccess,
             onModeSelected = onModeSelected
         )
     }
@@ -1301,7 +1308,7 @@ private fun ReasoningDepthOptionRow(
 @Composable
 private fun ModeSwitch(
     selectedMode: AppMode,
-    hasApiKey: Boolean,
+    hasPlatformAccess: Boolean,
     onModeSelected: (AppMode) -> Unit
 ) {
     GlassPanel(
@@ -1320,7 +1327,7 @@ private fun ModeSwitch(
             ModeSwitchOption(
                 text = stringResource(R.string.mode_advisor),
                 selected = selectedMode == AppMode.Advisor,
-                statusColor = if (hasApiKey) Color(0xFF20C657) else Color(0xFFFFB23E),
+                statusColor = if (hasPlatformAccess) Color(0xFF20C657) else Color(0xFFFFB23E),
                 modifier = Modifier.weight(1f),
                 onClick = { onModeSelected(AppMode.Advisor) }
             )
@@ -1393,7 +1400,7 @@ private fun ModeSwitchOption(
 }
 
 @Composable
-private fun ApiConnectedPill(hasApiKey: Boolean) {
+private fun ApiConnectedPill(hasPlatformAccess: Boolean) {
     GlassPanel(
         modifier = Modifier.height(46.dp),
         shape = RoundedCornerShape(28.dp),
@@ -1406,14 +1413,14 @@ private fun ApiConnectedPill(hasApiKey: Boolean) {
                 modifier = Modifier
                     .size(12.dp)
                     .clip(CircleShape)
-                    .background(if (hasApiKey) Color(0xFF20C657) else Color(0xFFFFB23E))
+                    .background(if (hasPlatformAccess) Color(0xFF20C657) else Color(0xFFFFB23E))
             )
             Spacer(Modifier.width(12.dp))
             Text(
-                text = if (hasApiKey) {
+                text = if (hasPlatformAccess) {
                     stringResource(R.string.hightac_connected)
                 } else {
-                    stringResource(R.string.hightac_key_missing)
+                    stringResource(R.string.hightac_approval_required)
                 },
                 color = LiquidColors.Ink,
                 fontSize = 16.sp,
@@ -1432,7 +1439,7 @@ private fun ApiConnectedPill(hasApiKey: Boolean) {
                 Icon(
                     Icons.Rounded.Check,
                     contentDescription = null,
-                    tint = if (hasApiKey) Color(0xFF7182B0) else Color(0xFFFFA000),
+                    tint = if (hasPlatformAccess) Color(0xFF7182B0) else Color(0xFFFFA000),
                     modifier = Modifier.size(21.dp)
                 )
             }

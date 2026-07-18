@@ -1,0 +1,44 @@
+# Rendered to C:/ProgramData/HighTac/Platform/config/platform.yaml at install time.
+# Every uppercase placeholder below must be replaced before the service starts.
+server:
+  bind_host: "0.0.0.0"
+  port: __WEB_PORT__
+  public_base_url: "http://__LAN_IPV4__:__WEB_PORT__"
+  web_assets: "__INSTALL_ROOT__/server/_internal/hightac_platform/static"
+
+database:
+  url: "sqlite:///__DATA_ROOT__/db/hightac.db"
+  wal: true
+  foreign_keys: true
+
+mqtt:
+  host: "127.0.0.1"
+  port: __MQTT_PORT__
+  username: "__MQTT_PLATFORM_USERNAME__"
+  password_env: "HIGHTAC_MQTT_PASSWORD"
+  tls: false
+  service_name: "HighTacMqttBroker"
+
+site:
+  name: "__SITE_NAME__"
+  station_id: "__STATION_ID__"
+
+integrations:
+  openai:
+    api_key_env: "HIGHTAC_OPENAI_API_KEY"
+    base_url_env: "HIGHTAC_OPENAI_BASE_URL"
+    model_env: "HIGHTAC_OPENAI_MODEL"
+  jiandaoyun:
+    api_key_env: "HIGHTAC_JIANDAOYUN_API_KEY"
+    app_id_env: "HIGHTAC_JIANDAOYUN_APP_ID"
+    entry_id_env: "HIGHTAC_JIANDAOYUN_ENTRY_ID"
+    base_url_env: "HIGHTAC_JIANDAOYUN_BASE_URL"
+
+paths:
+  data: "__DATA_ROOT__"
+  backups: "__DATA_ROOT__/backups"
+  logs: "__DATA_ROOT__/logs"
+
+backup:
+  daily_at: "02:00"
+  retention_days: 30

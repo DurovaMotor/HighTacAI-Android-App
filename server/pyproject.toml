@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hightac-platform"
+version = "2.0.0"
+description = "HighTac LAN management platform backend"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.16,<2",
+  "argon2-cffi>=25.1,<26",
+  "fastapi>=0.116,<1",
+  "httpx>=0.27,<1",
+  "openpyxl>=3.1,<4",
+  "paho-mqtt>=2.1,<3",
+  "pydantic-settings>=2.10,<3",
+  "python-multipart>=0.0.20,<1",
+  "sqlalchemy>=2.0.41,<3",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "jsonschema>=4.24,<5",
+  "openapi-spec-validator>=0.7.2,<0.8",
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "PyYAML>=6.0,<7",
+]
+
+[project.scripts]
+hightac-platform = "hightac_platform.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hightac_platform"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "hightac_platform/_migrations"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["hightac_platform"]

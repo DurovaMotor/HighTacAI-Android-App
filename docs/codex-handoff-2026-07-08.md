@@ -1,5 +1,7 @@
 # Codex 迁移交接记录 - 声光寻物大版本
 
+> 状态：V1 历史交接归档。本文中的 Android 直连 MQTT、App Broker 配置等内容已被 HighTac Platform V2 取代，仅用于追溯。当前部署和迁移必须以 `hightac-web-platform-architecture-plan.md`、`hightac-platform-operations.md` 及 `mqtt-local-broker-windows.md` 为准。
+
 创建：2026-07-08
 
 现场网络更新：2026-07-15
@@ -118,7 +120,7 @@
 | 端口 | `1884` |
 | 监听 | `0.0.0.0:1884` |
 | 用户名 | `hightac_mqtt` |
-| 密码 | `hightac-light` |
+| 密码 | 使用本机受保护配置中的现场值，不写入文档或 Git |
 | TLS | 关闭 |
 | ACL | `hightac_mqtt` 可读写 `/estation/#` |
 
@@ -134,7 +136,7 @@
 
 ```powershell
 $env:Path = "C:\Program Files\Mosquitto;$env:Path"
-.\tools\mqtt\start-mosquitto.ps1 -Mode Native -Port 1884 -Username hightac_mqtt -Password 'hightac-light'
+.\tools\mqtt\start-mosquitto.ps1 -Mode Native -Port 1884 -Username hightac_mqtt
 ```
 
 查看本机局域网 IP：
@@ -149,7 +151,7 @@ Get-NetIPAddress -AddressFamily IPv4 |
 
 ```powershell
 $env:Path = "C:\Program Files\Mosquitto;$env:Path"
-mosquitto_sub -h 127.0.0.1 -p 1884 -u hightac_mqtt -P 'hightac-light' -t '/estation/90A9F7301427/#' -v
+mosquitto_sub -h 127.0.0.1 -p 1884 -u hightac_mqtt -P '<site-mqtt-password>' -t '/estation/90A9F7301427/#' -v
 ```
 
 ## 真实基站未连入的当前判断
@@ -169,7 +171,7 @@ mosquitto_sub -h 127.0.0.1 -p 1884 -u hightac_mqtt -P 'hightac-light' -t '/estat
 2. 将 MQTT server/host 改为 `192.168.1.105`。
 3. 端口填 `1884`。
 4. 用户名 `hightac_mqtt`。
-5. 密码 `hightac-light`。
+5. 密码填写受保护配置中的现场值，不要粘贴到文档或聊天记录。
 6. TLS/SSL 关闭。
 7. 保存后重启基站。
 8. 观察 `/estation/90A9F7301427/#` 是否出现 heartbeat。
@@ -205,7 +207,7 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 
 ```powershell
 $env:Path = "C:\Program Files\Mosquitto;$env:Path"
-.\tools\mqtt\start-mosquitto.ps1 -Mode Native -Port 1884 -Username hightac_mqtt -Password 'hightac-light'
+.\tools\mqtt\start-mosquitto.ps1 -Mode Native -Port 1884 -Username hightac_mqtt
 ```
 
 6. 在 App 和基站管理页填新电脑当前局域网 IP，不要沿用旧电脑 IP。
@@ -224,7 +226,7 @@ $env:Path = "C:\Program Files\Mosquitto;$env:Path"
 当前目标：
 1. 在分支 codex/light-finding-requirements 上继续开发。
 2. 先验证 Android 单元测试：.\gradlew.bat :app:testDebugUnitTest
-3. 启动新电脑本机 Mosquitto broker，端口 1884，用户名 hightac_mqtt，密码 hightac-light，TLS 关闭。
+3. 启动新电脑本机 Mosquitto broker，端口 1884，用户名 hightac_mqtt，密码从受保护配置输入，TLS 关闭。
 4. 使用新电脑当前局域网 IP 配置 App 和 ETAP05-D1 基站，基站 SN 是 90A9F7301427。
 5. 根据 Kaicom 二开文档 https://platform.kaicom.cn:9006/platform/file-server/eStationMqtt.html，确认 App 订阅 /estation/90A9F7301427/heartbeat 和 /estation/90A9F7301427/result，发布 /estation/90A9F7301427/task，QoS 0。
 6. 重点解决真实基站没有连入 broker 的问题：进入基站管理页，把 MQTT host 改为新电脑局域网 IP，端口 1884，用户名密码一致，TLS/SSL 关闭，保存后重启基站，并用 mosquitto_sub 监听 /estation/90A9F7301427/#。

@@ -1,0 +1,334 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "ca318902085813002215c01d365e9322",
+    "entities": [
+      {
+        "tableName": "cached_products",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`endpoint` TEXT NOT NULL, `id` TEXT NOT NULL, `product_code` TEXT NOT NULL, `product_name` TEXT, `source` TEXT NOT NULL, `is_active` INTEGER NOT NULL, `active_binding_count` INTEGER NOT NULL, `created_at_epoch_millis` INTEGER NOT NULL, `updated_at_epoch_millis` INTEGER NOT NULL, PRIMARY KEY(`endpoint`, `id`))",
+        "fields": [
+          {
+            "fieldPath": "endpoint",
+            "columnName": "endpoint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productCode",
+            "columnName": "product_code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productName",
+            "columnName": "product_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeBindingCount",
+            "columnName": "active_binding_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "created_at_epoch_millis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updated_at_epoch_millis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "endpoint",
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_cached_products_endpoint_product_code",
+            "unique": true,
+            "columnNames": [
+              "endpoint",
+              "product_code"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_cached_products_endpoint_product_code` ON `${TABLE_NAME}` (`endpoint`, `product_code`)"
+          }
+        ]
+      },
+      {
+        "tableName": "cached_active_bindings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`endpoint` TEXT NOT NULL, `id` TEXT NOT NULL, `product_id` TEXT NOT NULL, `product_code` TEXT NOT NULL, `product_name` TEXT, `tag_id` TEXT NOT NULL, `site_id` TEXT NOT NULL, `station_id` TEXT NOT NULL, `source` TEXT NOT NULL, `actor_type` TEXT NOT NULL, `actor_id` TEXT NOT NULL, `actor_display_name` TEXT NOT NULL, `bound_at_epoch_millis` INTEGER NOT NULL, PRIMARY KEY(`endpoint`, `id`))",
+        "fields": [
+          {
+            "fieldPath": "endpoint",
+            "columnName": "endpoint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productId",
+            "columnName": "product_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productCode",
+            "columnName": "product_code",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productName",
+            "columnName": "product_name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tagId",
+            "columnName": "tag_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "site_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stationId",
+            "columnName": "station_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorType",
+            "columnName": "actor_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorId",
+            "columnName": "actor_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorDisplayName",
+            "columnName": "actor_display_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "boundAtEpochMillis",
+            "columnName": "bound_at_epoch_millis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "endpoint",
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_cached_active_bindings_endpoint_tag_id",
+            "unique": true,
+            "columnNames": [
+              "endpoint",
+              "tag_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_cached_active_bindings_endpoint_tag_id` ON `${TABLE_NAME}` (`endpoint`, `tag_id`)"
+          }
+        ]
+      },
+      {
+        "tableName": "cached_tags",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`endpoint` TEXT NOT NULL, `tag_id` TEXT NOT NULL, `site_id` TEXT, `station_id` TEXT, `registered_at_epoch_millis` INTEGER, `first_seen_at_epoch_millis` INTEGER, `last_seen_at_epoch_millis` INTEGER, `online` INTEGER NOT NULL, `battery_raw` INTEGER, `battery_voltage` REAL, `battery_level` INTEGER, `low_battery` INTEGER NOT NULL, `firmware_version` TEXT, `group_no` INTEGER, `last_result_type` INTEGER, `is_abnormal` INTEGER NOT NULL, `abnormal_reason` TEXT, `active_binding_id` TEXT, PRIMARY KEY(`endpoint`, `tag_id`))",
+        "fields": [
+          {
+            "fieldPath": "endpoint",
+            "columnName": "endpoint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tagId",
+            "columnName": "tag_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "site_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "stationId",
+            "columnName": "station_id",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "registeredAtEpochMillis",
+            "columnName": "registered_at_epoch_millis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "firstSeenAtEpochMillis",
+            "columnName": "first_seen_at_epoch_millis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastSeenAtEpochMillis",
+            "columnName": "last_seen_at_epoch_millis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "online",
+            "columnName": "online",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batteryRaw",
+            "columnName": "battery_raw",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "batteryVoltage",
+            "columnName": "battery_voltage",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "batteryLevel",
+            "columnName": "battery_level",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lowBattery",
+            "columnName": "low_battery",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "firmwareVersion",
+            "columnName": "firmware_version",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "groupNo",
+            "columnName": "group_no",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastResultType",
+            "columnName": "last_result_type",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "isAbnormal",
+            "columnName": "is_abnormal",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "abnormalReason",
+            "columnName": "abnormal_reason",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "activeBindingId",
+            "columnName": "active_binding_id",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "endpoint",
+            "tag_id"
+          ]
+        }
+      },
+      {
+        "tableName": "cache_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`endpoint` TEXT NOT NULL, `products_synchronized_at_epoch_millis` INTEGER, `bindings_synchronized_at_epoch_millis` INTEGER, `tags_synchronized_at_epoch_millis` INTEGER, PRIMARY KEY(`endpoint`))",
+        "fields": [
+          {
+            "fieldPath": "endpoint",
+            "columnName": "endpoint",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "productsSynchronizedAtEpochMillis",
+            "columnName": "products_synchronized_at_epoch_millis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "bindingsSynchronizedAtEpochMillis",
+            "columnName": "bindings_synchronized_at_epoch_millis",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "tagsSynchronizedAtEpochMillis",
+            "columnName": "tags_synchronized_at_epoch_millis",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "endpoint"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ca318902085813002215c01d365e9322')"
+    ]
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.hightac.local/mqtt-fixture-manifest.schema.json",
+  "title": "HighTac MQTT Fixture Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schema_version", "description", "station_id", "fixtures"],
+  "properties": {
+    "$schema": {"type": "string", "const": "./manifest.schema.json"},
+    "schema_version": {"type": "integer", "const": 1},
+    "description": {"type": "string", "minLength": 1, "maxLength": 512},
+    "station_id": {"$ref": "#/$defs/StationId"},
+    "fixtures": {
+      "type": "array",
+      "minItems": 5,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/Fixture"}
+    }
+  },
+  "$defs": {
+    "StationId": {
+      "type": "string",
+      "pattern": "^90A9F[0-9A-F]{7}$"
+    },
+    "Correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command_id_present", "strategy", "window_seconds", "state_match_preferred"],
+      "properties": {
+        "command_id_present": {"type": "boolean", "const": false},
+        "strategy": {"type": "string", "const": "latest_pending_by_station_tag_time"},
+        "window_seconds": {"type": "integer", "const": 10},
+        "state_match_preferred": {"type": "boolean"}
+      }
+    },
+    "Fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "file",
+        "direction",
+        "topic",
+        "qos",
+        "retain",
+        "payload_kind",
+        "valid_json",
+        "expected_outcome",
+        "correlation"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,63}$"},
+        "file": {"type": "string", "pattern": "^[a-z][a-z0-9-]+\\.(json|txt)$"},
+        "direction": {"type": "string", "enum": ["station_to_backend", "backend_to_station"]},
+        "topic": {"type": "string", "pattern": "^/estation/90A9F[0-9A-F]{7}/(heartbeat|result|task)$"},
+        "qos": {"type": "integer", "const": 0},
+        "retain": {"type": "boolean", "const": false},
+        "payload_kind": {
+          "type": "string",
+          "enum": ["heartbeat", "result_ack", "light_command", "clear_command", "malformed"]
+        },
+        "valid_json": {"type": "boolean"},
+        "expected_outcome": {"type": "string", "enum": ["accepted", "rejected"]},
+        "correlation": {
+          "oneOf": [
+            {"$ref": "#/$defs/Correlation"},
+            {"type": "null"}
+          ]
+        }
+      }
+    }
+  }
+}

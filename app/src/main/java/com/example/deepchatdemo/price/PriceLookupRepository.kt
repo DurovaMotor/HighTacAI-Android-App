@@ -3,12 +3,15 @@ package com.example.deepchatdemo.price
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import com.example.deepchatdemo.platform.config.SharedPreferencesPlatformConfigStore
+import com.example.deepchatdemo.platform.network.AndroidPlatformMobileApiTransportFactory
+import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class PriceLookupRepository(
-    private val jiandaoYunPriceApi: JianDaoYunPriceApi = JianDaoYunPriceApi(),
+    private val jiandaoYunPriceApi: JianDaoYunPriceApi,
     private val cacheStore: PriceLookupCacheStore? = null,
     private val seedImporter: PriceLookupSeedImporter? = null
 ) {
@@ -138,10 +141,16 @@ class PriceLookupRepository(
     companion object {
         fun fromContext(context: Context): PriceLookupRepository {
             val appContext = context.applicationContext
-            val cacheStore = PriceLookupCacheStore(appContext)
+            val imageUrlResolver = PlatformImageUrlResolver(
+                SharedPreferencesPlatformConfigStore(appContext)
+            )
+            val cacheStore = PriceLookupCacheStore(appContext, imageUrlResolver)
+            val transport = AndroidPlatformMobileApiTransportFactory.create(appContext)
             return PriceLookupRepository(
                 jiandaoYunPriceApi = JianDaoYunPriceApi(
-                    cacheStore = cacheStore
+                    transport = transport,
+                    cacheStore = cacheStore,
+                    imageUrlResolver = imageUrlResolver
                 ),
                 cacheStore = cacheStore,
                 seedImporter = PriceLookupSeedImporter(appContext)
@@ -158,7 +167,6 @@ private fun PriceLookupSearchResult.withRefreshFailureLabel(): PriceLookupSearch
 
 private fun Throwable.canUseRefreshFallback(): Boolean {
     return when (this) {
-        is JianDaoYunPriceApi.JianDaoYunConfigException -> false
         is JianDaoYunPriceApi.JianDaoYunHttpException -> isTransient
         is IOException -> true
         else -> false

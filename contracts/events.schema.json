@@ -1,0 +1,656 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.hightac.local/events.schema.json",
+  "title": "HighTac WebSocket Event",
+  "description": "Strict version 1 event union. Clients must refresh REST snapshots after reconnect because events are not replayed.",
+  "oneOf": [
+    {"$ref": "#/$defs/BrokerStatusChangedEvent"},
+    {"$ref": "#/$defs/StationStatusChangedEvent"},
+    {"$ref": "#/$defs/StationHeartbeatEvent"},
+    {"$ref": "#/$defs/TagStatusChangedEvent"},
+    {"$ref": "#/$defs/BindingCreatedEvent"},
+    {"$ref": "#/$defs/BindingRemovedEvent"},
+    {"$ref": "#/$defs/CommandStatusChangedEvent"},
+    {"$ref": "#/$defs/DeviceStatusChangedEvent"},
+    {"$ref": "#/$defs/SystemNoticeEvent"}
+  ],
+  "$defs": {
+    "Uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "StationId": {
+      "type": "string",
+      "pattern": "^90A9F[0-9A-F]{7}$"
+    },
+    "TagId": {
+      "type": "string",
+      "pattern": "^AD1[0-9A-F]{9}$"
+    },
+    "StationStatus": {
+      "type": "string",
+      "enum": ["UNKNOWN", "ONLINE", "STALE", "OFFLINE"]
+    },
+    "BrokerStatus": {
+      "type": "string",
+      "enum": ["STOPPED", "STARTING", "RUNNING", "STOPPING", "FAILED", "UNKNOWN"]
+    },
+    "CommandStatus": {
+      "type": "string",
+      "enum": ["ACCEPTED", "PUBLISHED", "CONFIRMED", "PARTIALLY_CONFIRMED", "UNCONFIRMED", "FAILED", "SUPERSEDED"]
+    },
+    "CommandItemStatus": {
+      "type": "string",
+      "enum": ["PENDING", "PUBLISHED", "CONFIRMED", "UNCONFIRMED", "FAILED", "SUPERSEDED"]
+    },
+    "DeviceStatus": {
+      "type": "string",
+      "enum": ["PENDING", "APPROVED", "REVOKED"]
+    },
+    "EventBase": {
+      "type": "object",
+      "required": [
+        "event_id",
+        "schema_version",
+        "event_type",
+        "occurred_at",
+        "entity_type",
+        "entity_id",
+        "payload"
+      ],
+      "properties": {
+        "event_id": {"$ref": "#/$defs/Uuid"},
+        "schema_version": {"type": "integer", "const": 1},
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "broker.status_changed",
+            "station.status_changed",
+            "station.heartbeat",
+            "tag.status_changed",
+            "binding.created",
+            "binding.removed",
+            "command.status_changed",
+            "device.status_changed",
+            "system.notice"
+          ]
+        },
+        "occurred_at": {"$ref": "#/$defs/Timestamp"},
+        "entity_type": {
+          "type": "string",
+          "enum": ["broker", "station", "tag", "binding", "command", "device", "system"]
+        },
+        "entity_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "payload": {"type": "object"}
+      }
+    },
+    "BrokerStatusChangedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "previous_status",
+        "current_status",
+        "windows_service_running",
+        "tcp_reachable",
+        "mqtt_connected",
+        "subscriptions_ready",
+        "endpoint",
+        "reason"
+      ],
+      "properties": {
+        "previous_status": {"$ref": "#/$defs/BrokerStatus"},
+        "current_status": {"$ref": "#/$defs/BrokerStatus"},
+        "windows_service_running": {"type": "boolean"},
+        "tcp_reachable": {"type": "boolean"},
+        "mqtt_connected": {"type": "boolean"},
+        "subscriptions_ready": {"type": "boolean"},
+        "endpoint": {
+          "type": "string",
+          "pattern": "^[^\\s:]+:[0-9]{1,5}$"
+        },
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 512
+        }
+      }
+    },
+    "BrokerStatusChangedEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {"const": "broker.status_changed"},
+            "entity_type": {"const": "broker"},
+            "entity_id": {"const": "HighTacMqttBroker"},
+            "payload": {"$ref": "#/$defs/BrokerStatusChangedPayload"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "StationStatusChangedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["station_id", "previous_status", "current_status", "last_heartbeat_at", "broker_connected", "reason"],
+      "properties": {
+        "station_id": {"$ref": "#/$defs/StationId"},
+        "previous_status": {"$ref": "#/$defs/StationStatus"},
+        "current_status": {"$ref": "#/$defs/StationStatus"},
+        "last_heartbeat_at": {
+          "oneOf": [
+            {"$ref": "#/$defs/Timestamp"},
+            {"type": "null"}
+          ]
+        },
+        "broker_connected": {"type": "boolean"},
+        "reason": {
+          "type": ["string", "null"],
+          "maxLength": 512
+        }
+      }
+    },
+    "StationStatusChangedEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {"const": "station.status_changed"},
+            "entity_type": {"const": "station"},
+            "entity_id": {"$ref": "#/$defs/StationId"},
+            "payload": {"$ref": "#/$defs/StationStatusChangedPayload"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "StationHeartbeatPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "station_id",
+        "status",
+        "mac",
+        "alias",
+        "server_address",
+        "heartbeat_seconds",
+        "firmware_version",
+        "total_count",
+        "send_count"
+      ],
+      "properties": {
+        "station_id": {"$ref": "#/$defs/StationId"},
+        "status": {"$ref": "#/$defs/StationStatus"},
+        "mac": {"type": "string", "maxLength": 64},
+        "alias": {"type": ["string", "null"], "maxLength": 128},
+        "server_address": {"type": "string", "maxLength": 255},
+        "heartbeat_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "firmware_version": {"type": "string", "maxLength": 64},
+        "total_count": {"type": "integer", "minimum": 0},
+        "send_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "StationHeartbeatEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {"const": "station.heartbeat"},
+            "entity_type": {"const": "station"},
+            "entity_id": {"$ref": "#/$defs/StationId"},
+            "payload": {"$ref": "#/$defs/StationHeartbeatPayload"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "TagStatusChangedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tag_id",
+        "station_id",
+        "online",
+        "last_seen_at",
+        "battery_raw",
+        "battery_voltage",
+        "battery_level",
+        "low_battery",
+        "is_abnormal",
+        "abnormal_reason",
+        "last_result_type"
+      ],
+      "properties": {
+        "tag_id": {"$ref": "#/$defs/TagId"},
+        "station_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/StationId"},
+            {"type": "null"}
+          ]
+        },
+        "online": {"type": "boolean"},
+        "last_seen_at": {
+          "oneOf": [
+            {"$ref": "#/$defs/Timestamp"},
+            {"type": "null"}
+          ]
+        },
+        "battery_raw": {"type": ["integer", "null"], "minimum": 0},
+        "battery_voltage": {"type": ["number", "null"], "minimum": 0},
+        "battery_level": {
+          "type": ["integer", "null"],
+          "enum": [0, 10, 30, 60, 80, 90, 100, null]
+        },
+        "low_battery": {"type": "boolean"},
+        "is_abnormal": {"type": "boolean"},
+        "abnormal_reason": {"type": ["string", "null"], "maxLength": 512},
+        "last_result_type": {"type": ["integer", "null"], "minimum": 0, "maximum": 255}
+      }
+    },
+    "TagStatusChangedEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {"const": "tag.status_changed"},
+            "entity_type": {"const": "tag"},
+            "entity_id": {"$ref": "#/$defs/TagId"},
+            "payload": {"$ref": "#/$defs/TagStatusChangedPayload"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "BindingSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "product_id",
+        "product_code",
+        "product_name",
+        "tag_id",
+        "site_id",
+        "station_id",
+        "source",
+        "actor_type",
+        "actor_id"
+      ],
+      "properties": {
+        "binding_id": {"$ref": "#/$defs/Uuid"},
+        "product_id": {"$ref": "#/$defs/Uuid"},
+        "product_code": {"type": "string", "minLength": 1, "maxLength": 128},
+        "product_name": {"type": ["string", "null"], "maxLength": 256},
+        "tag_id": {"$ref": "#/$defs/TagId"},
+        "site_id": {"$ref": "#/$defs/Uuid"},
+        "station_id": {"$ref": "#/$defs/StationId"},
+        "source": {"type": "string", "enum": ["ANDROID", "WEB", "MIGRATION"]},
+        "actor_type": {"type": "string", "enum": ["ADMIN", "ANDROID", "SYSTEM"]},
+        "actor_id": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    },
+    "BindingCreatedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding", "bound_at"],
+      "properties": {
+        "binding": {"$ref": "#/$defs/BindingSnapshot"},
+        "bound_at": {"$ref": "#/$defs/Timestamp"}
+      }
+    },
+    "BindingCreatedEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {"const": "binding.created"},
+            "entity_type": {"const": "binding"},
+            "entity_id": {"$ref": "#/$defs/Uuid"},
+            "payload": {"$ref": "#/$defs/BindingCreatedPayload"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "BindingRemovedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binding", "unbound_at", "replacement_binding_id"],
+      "properties": {
+        "binding": {"$ref": "#/$defs/BindingSnapshot"},
+        "unbound_at": {"$ref": "#/$defs/Timestamp"},
+        "replacement_binding_id": {
+          "oneOf": [
+            {"$ref": "#/$defs/Uuid"},
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "BindingRemovedEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {"const": "binding.removed"},
+            "entity_type": {"const": "binding"},
+            "entity_id": {"$ref": "#/$defs/Uuid"},
+            "payload": {"$ref": "#/$defs/BindingRemovedPayload"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "CommandItemUpdate": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["item_id", "tag_id", "station_id", "previous_status", "current_status", "correlation", "result_type"],
+      "properties": {
+        "item_id": {"$ref": "#/$defs/Uuid"},
+        "tag_id": {"$ref": "#/$defs/TagId"},
+        "station_id": {"$ref": "#/$defs/StationId"},
+        "previous_status": {"$ref": "#/$defs/CommandItemStatus"},
+        "current_status": {"$ref": "#/$defs/CommandItemStatus"},
+        "correlation": {
+          "type": "string",
+          "enum": ["NONE", "HEURISTIC_STATION_TAG_TIME", "HEURISTIC_STATE_MATCH"]
+        },
+        "result_type": {"type": ["integer", "null"], "minimum": 0, "maximum": 255}
+      }
+    },
+    "CommandStatusChangedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command_id",
+        "action",
+        "previous_status",
+        "current_status",
+        "target_count",
+        "confirmed_count",
+        "unconfirmed_count",
+        "failed_count",
+        "item"
+      ],
+      "properties": {
+        "command_id": {"$ref": "#/$defs/Uuid"},
+        "action": {"type": "string", "enum": ["LIGHT_ON", "LIGHT_OFF"]},
+        "previous_status": {"$ref": "#/$defs/CommandStatus"},
+        "current_status": {"$ref": "#/$defs/CommandStatus"},
+        "target_count": {"type": "integer", "minimum": 0},
+        "confirmed_count": {"type": "integer", "minimum": 0},
+        "unconfirmed_count": {"type": "integer", "minimum": 0},
+        "failed_count": {"type": "integer", "minimum": 0},
+        "item": {"$ref": "#/$defs/CommandItemUpdate"}
+      }
+    },
+    "CommandStatusChangedEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {"const": "command.status_changed"},
+            "entity_type": {"const": "command"},
+            "entity_id": {"$ref": "#/$defs/Uuid"},
+            "payload": {"$ref": "#/$defs/CommandStatusChangedPayload"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "DeviceStatusChangedPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["device_id", "display_name", "previous_status", "current_status", "manufacturer", "model", "app_version", "reason"],
+      "properties": {
+        "device_id": {"$ref": "#/$defs/Uuid"},
+        "display_name": {"type": ["string", "null"], "maxLength": 128},
+        "previous_status": {"$ref": "#/$defs/DeviceStatus"},
+        "current_status": {"$ref": "#/$defs/DeviceStatus"},
+        "manufacturer": {"type": "string", "minLength": 1, "maxLength": 128},
+        "model": {"type": "string", "minLength": 1, "maxLength": 128},
+        "app_version": {"type": "string", "minLength": 1, "maxLength": 64},
+        "reason": {"type": ["string", "null"], "maxLength": 512}
+      }
+    },
+    "DeviceStatusChangedEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {"const": "device.status_changed"},
+            "entity_type": {"const": "device"},
+            "entity_id": {"$ref": "#/$defs/Uuid"},
+            "payload": {"$ref": "#/$defs/DeviceStatusChangedPayload"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "SystemNoticePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "message", "resource_type", "resource_id"],
+      "properties": {
+        "severity": {"type": "string", "enum": ["INFO", "WARNING", "ERROR"]},
+        "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$"},
+        "message": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "resource_type": {"type": ["string", "null"], "maxLength": 64},
+        "resource_id": {"type": ["string", "null"], "maxLength": 128}
+      }
+    },
+    "SystemNoticeEvent": {
+      "allOf": [
+        {"$ref": "#/$defs/EventBase"},
+        {
+          "type": "object",
+          "properties": {
+            "event_type": {"const": "system.notice"},
+            "entity_type": {"const": "system"},
+            "entity_id": {"const": "HighTacPlatform"},
+            "payload": {"$ref": "#/$defs/SystemNoticePayload"}
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  },
+  "examples": [
+    {
+      "event_id": "e4623e9a-5096-4d39-950e-d8c985735a26",
+      "schema_version": 1,
+      "event_type": "broker.status_changed",
+      "occurred_at": "2026-07-16T08:15:30Z",
+      "entity_type": "broker",
+      "entity_id": "HighTacMqttBroker",
+      "payload": {
+        "previous_status": "STARTING",
+        "current_status": "RUNNING",
+        "windows_service_running": true,
+        "tcp_reachable": true,
+        "mqtt_connected": true,
+        "subscriptions_ready": true,
+        "endpoint": "192.168.1.105:1884",
+        "reason": null
+      }
+    },
+    {
+      "event_id": "8acde9b9-9274-47fe-b3e5-42ec0af6738c",
+      "schema_version": 1,
+      "event_type": "station.status_changed",
+      "occurred_at": "2026-07-16T08:15:31Z",
+      "entity_type": "station",
+      "entity_id": "90A9F1234567",
+      "payload": {
+        "station_id": "90A9F1234567",
+        "previous_status": "UNKNOWN",
+        "current_status": "ONLINE",
+        "last_heartbeat_at": "2026-07-16T08:15:31Z",
+        "broker_connected": true,
+        "reason": "heartbeat_received"
+      }
+    },
+    {
+      "event_id": "19061535-942c-4d7d-9dca-31e5a091a4e9",
+      "schema_version": 1,
+      "event_type": "station.heartbeat",
+      "occurred_at": "2026-07-16T08:15:31Z",
+      "entity_type": "station",
+      "entity_id": "90A9F1234567",
+      "payload": {
+        "station_id": "90A9F1234567",
+        "status": "ONLINE",
+        "mac": "AA:BB:CC:DD:EE:FF",
+        "alias": "Dock A",
+        "server_address": "192.168.1.105:1884",
+        "heartbeat_seconds": 20,
+        "firmware_version": "1.6.7",
+        "total_count": 3,
+        "send_count": 1
+      }
+    },
+    {
+      "event_id": "5a982fe8-ce1a-4094-86b3-d3b52bd7b8f7",
+      "schema_version": 1,
+      "event_type": "tag.status_changed",
+      "occurred_at": "2026-07-16T08:15:32Z",
+      "entity_type": "tag",
+      "entity_id": "AD100000048F",
+      "payload": {
+        "tag_id": "AD100000048F",
+        "station_id": "90A9F1234567",
+        "online": true,
+        "last_seen_at": "2026-07-16T08:15:32Z",
+        "battery_raw": 30,
+        "battery_voltage": 3.0,
+        "battery_level": 100,
+        "low_battery": false,
+        "is_abnormal": false,
+        "abnormal_reason": null,
+        "last_result_type": 254
+      }
+    },
+    {
+      "event_id": "81e5dd81-2f6b-4f9a-873a-50c3b493a7d5",
+      "schema_version": 1,
+      "event_type": "binding.created",
+      "occurred_at": "2026-07-16T08:15:33Z",
+      "entity_type": "binding",
+      "entity_id": "168a5b9c-572e-4925-bec3-3c2a031f166f",
+      "payload": {
+        "binding": {
+          "binding_id": "168a5b9c-572e-4925-bec3-3c2a031f166f",
+          "product_id": "12f2390e-301f-4c44-a90d-205b5ff0b39f",
+          "product_code": "1711A-ABA-PT",
+          "product_name": "HighTac sample product",
+          "tag_id": "AD100000048F",
+          "site_id": "2b16ae29-f7ab-4c44-9fc6-a0ca693d9c68",
+          "station_id": "90A9F1234567",
+          "source": "ANDROID",
+          "actor_type": "ANDROID",
+          "actor_id": "ba17796c-c44e-4dc5-9afc-e82af7ef0cf1"
+        },
+        "bound_at": "2026-07-16T08:15:33Z"
+      }
+    },
+    {
+      "event_id": "626c1a76-ee3d-48af-ad53-b5f14e11787b",
+      "schema_version": 1,
+      "event_type": "binding.removed",
+      "occurred_at": "2026-07-16T08:15:34Z",
+      "entity_type": "binding",
+      "entity_id": "168a5b9c-572e-4925-bec3-3c2a031f166f",
+      "payload": {
+        "binding": {
+          "binding_id": "168a5b9c-572e-4925-bec3-3c2a031f166f",
+          "product_id": "12f2390e-301f-4c44-a90d-205b5ff0b39f",
+          "product_code": "1711A-ABA-PT",
+          "product_name": "HighTac sample product",
+          "tag_id": "AD100000048F",
+          "site_id": "2b16ae29-f7ab-4c44-9fc6-a0ca693d9c68",
+          "station_id": "90A9F1234567",
+          "source": "WEB",
+          "actor_type": "ADMIN",
+          "actor_id": "b9c79a62-3b52-49e6-88d8-4d2ed4577ed2"
+        },
+        "unbound_at": "2026-07-16T08:15:34Z",
+        "replacement_binding_id": null
+      }
+    },
+    {
+      "event_id": "bb814db4-a833-420c-9e1d-3047548149a9",
+      "schema_version": 1,
+      "event_type": "command.status_changed",
+      "occurred_at": "2026-07-16T08:15:35Z",
+      "entity_type": "command",
+      "entity_id": "d7d74ed4-44d7-4934-af3a-a80d93aaf63f",
+      "payload": {
+        "command_id": "d7d74ed4-44d7-4934-af3a-a80d93aaf63f",
+        "action": "LIGHT_ON",
+        "previous_status": "PUBLISHED",
+        "current_status": "CONFIRMED",
+        "target_count": 1,
+        "confirmed_count": 1,
+        "unconfirmed_count": 0,
+        "failed_count": 0,
+        "item": {
+          "item_id": "06a676b9-d923-455f-9500-57f94730feb8",
+          "tag_id": "AD100000048F",
+          "station_id": "90A9F1234567",
+          "previous_status": "PUBLISHED",
+          "current_status": "CONFIRMED",
+          "correlation": "HEURISTIC_STATE_MATCH",
+          "result_type": 254
+        }
+      }
+    },
+    {
+      "event_id": "4b587d2c-5c3d-47e4-80de-9bfaec480b93",
+      "schema_version": 1,
+      "event_type": "device.status_changed",
+      "occurred_at": "2026-07-16T08:15:36Z",
+      "entity_type": "device",
+      "entity_id": "ba17796c-c44e-4dc5-9afc-e82af7ef0cf1",
+      "payload": {
+        "device_id": "ba17796c-c44e-4dc5-9afc-e82af7ef0cf1",
+        "display_name": "Receiving Phone",
+        "previous_status": "PENDING",
+        "current_status": "APPROVED",
+        "manufacturer": "Example Mobile",
+        "model": "Field-10",
+        "app_version": "1.0.0",
+        "reason": "approved_by_admin"
+      }
+    },
+    {
+      "event_id": "dd25bb08-a3db-417d-9ace-252e599361c6",
+      "schema_version": 1,
+      "event_type": "system.notice",
+      "occurred_at": "2026-07-16T08:15:37Z",
+      "entity_type": "system",
+      "entity_id": "HighTacPlatform",
+      "payload": {
+        "severity": "WARNING",
+        "code": "BACKUP_FAILED",
+        "message": "The scheduled backup did not complete.",
+        "resource_type": "backup",
+        "resource_id": "fa8d5849-0bd3-416d-9b1a-4c914ea20d86"
+      }
+    }
+  ]
+}

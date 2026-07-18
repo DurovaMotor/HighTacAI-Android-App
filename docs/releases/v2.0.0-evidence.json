@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "product_version": "2.0.0",
+  "expected_git_tag": "v2.0.0",
+  "distribution_target": "internal_lan",
+  "test_matrix": [
+    {
+      "id": "android_unit_and_room",
+      "status": "pending",
+      "required_for_release": true,
+      "evidence": "Run :app:testDebugUnitTest and the Room instrumented or Robolectric suite on the final tagged commit."
+    },
+    {
+      "id": "android_lint_and_release_apk",
+      "status": "pending",
+      "required_for_release": true,
+      "evidence": "Run lint and build the non-debuggable release APK; verify package ID, signing certificate, version 2.0.0, and embedded-secret scan."
+    },
+    {
+      "id": "backend_pytest",
+      "status": "pending",
+      "required_for_release": true,
+      "evidence": "Run server pytest on the final tagged commit."
+    },
+    {
+      "id": "contract_validation",
+      "status": "pending",
+      "required_for_release": true,
+      "evidence": "Validate OpenAPI, WebSocket examples, and MQTT fixtures on the final tagged commit."
+    },
+    {
+      "id": "web_unit_build_e2e",
+      "status": "pending",
+      "required_for_release": true,
+      "evidence": "Run npm test, npm run build, and npm run test:e2e on the final tagged commit."
+    },
+    {
+      "id": "installer_static",
+      "status": "pending",
+      "required_for_release": true,
+      "evidence": "Run installer/tests/Test-InstallerSkeleton.ps1 on the final tagged commit."
+    },
+    {
+      "id": "release_artifact_secret_scan",
+      "status": "pending",
+      "required_for_release": true,
+      "evidence": "Run Test-ReleaseArtifacts.ps1 against the final 2.0.0 payload and confirm zero runtime databases, logs, passwords, keys, PFX files, or rendered secrets."
+    }
+  ],
+  "manual_checks": [
+    {
+      "id": "real_station_tag_closed_loop",
+      "status": "passed",
+      "required_for_release": true,
+      "owner": "HighTac release team",
+      "evidence": "Production audit evidence from 2026-07-16: HighTac Phone 01 / OnePlus PLF110 used station 90A9F7301427 and light strip AD1000158A2A. LIGHT_ON command 36f9c347-b233-42f0-b6cb-ec0cf0624eb5 for product 45121-AAA-FC-T was CONFIRMED from 08:24:07.279Z to 08:24:10.639Z UTC. LIGHT_OFF command 681e9718-1c10-448f-8e8c-a6976289dc84 was CONFIRMED from 08:41:11.115Z to 08:41:13.272Z UTC. No database or log is included in the release."
+    },
+    {
+      "id": "v2_packaged_android_network_smoke",
+      "status": "pending",
+      "required_for_release": true,
+      "owner": "HighTac release team",
+      "evidence": "Install the final 2.0.0 APK, join Durova-5G, verify API enrollment/sync, then issue confirmed LIGHT_ON and LIGHT_OFF commands through the packaged platform."
+    },
+    {
+      "id": "windows_host_upgrade_rehearsal",
+      "status": "pending",
+      "required_for_release": true,
+      "owner": "HighTac release team",
+      "evidence": "Run and record a successful 1.0.0 to 2.0.0 upgrade on an approved Windows host, including service health and data preservation. Historical failed host logs are diagnosis input, not passing evidence. Do not commit host logs or ProgramData."
+    },
+    {
+      "id": "windows_sandbox_upgrade_rehearsal",
+      "status": "pending",
+      "required_for_release": true,
+      "owner": "HighTac release team",
+      "evidence": "Run the isolated Windows Sandbox flow with HighTacPlatform-1.0.0-x64.exe as the baseline and HighTacPlatform-2.0.0-x64.exe as the candidate; retain only the sanitized rehearsal JSON."
+    },
+    {
+      "id": "windows_reboot_autostart",
+      "status": "pending",
+      "required_for_release": true,
+      "owner": "HighTac release team",
+      "evidence": "Restart the approved Windows host and verify HighTacMqttBroker and HighTacPlatform return to Running/Automatic, API readiness succeeds, MQTT is reachable on 1884, and the real station reconnects without manual service startup."
+    },
+    {
+      "id": "two_android_client_sync",
+      "status": "pending",
+      "required_for_release": true,
+      "owner": "HighTac release team",
+      "evidence": "Use two independently enrolled Android installations to verify a binding or light-state change made by one client reaches the other through the central API/WebSocket path within the architecture acceptance window."
+    },
+    {
+      "id": "fault_injection_recovery",
+      "status": "pending",
+      "required_for_release": true,
+      "owner": "HighTac release team",
+      "evidence": "Verify and distinguish station power loss, MQTT broker stop/restart, API stop/restart, and Android Wi-Fi loss/rejoin; each component must recover without corrupting bindings or command state."
+    },
+    {
+      "id": "provider_credentials_rotated",
+      "status": "pending",
+      "required_for_release": true,
+      "owner": "HighTac release team and provider account owner",
+      "evidence": "Revoke the OpenAI-compatible and JianDaoYun credentials that existed in a historical APK, configure replacement credentials only in the protected backend environment, and record provider-side revocation verification without recording any secret value."
+    },
+    {
+      "id": "scale_acceptance_10_phones_2000_tags",
+      "status": "external",
+      "required_for_release": false,
+      "owner": "user",
+      "evidence": "The user will perform the final field-scale acceptance with 10 real Android phones and 2000 real light strips. This is the only user-owned acceptance item and is not represented as completed by Codex."
+    }
+  ]
+}

@@ -9,28 +9,47 @@ from __future__ import annotations
 
 import ipaddress
 import queue
+import secrets
 import socket
 import struct
 import subprocess
+import sys
 import threading
 import time
 import tkinter as tk
 from dataclasses import dataclass, field
 from tkinter import messagebox, ttk
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
+APP_VERSION = "1.1.0"
 APP_TITLE = "HighTac MQTT服务器一键配置"
 DEFAULT_STATION_ID = "90A9F7301427"
 CURRENT_SITE_BROKER_HOST = "192.168.1.105"
 DEFAULT_PORT = 1884
-DEFAULT_USERNAME = "hightac_mqtt"
-DEFAULT_PASSWORD = "hightac-light"
+CREDENTIAL_USERNAME_PREFIX = "hightac_"
+CREDENTIAL_USERNAME_TOKEN_BYTES = 6
+CREDENTIAL_PASSWORD_TOKEN_BYTES = 24
 FIREWALL_RULE_PREFIX = "HighTac MQTT Broker TCP"
 
 
 class MqttProtocolError(Exception):
     pass
+
+
+def generate_credentials() -> Tuple[str, str]:
+    """Return a fresh username and password for one GUI process."""
+    username = CREDENTIAL_USERNAME_PREFIX + secrets.token_hex(CREDENTIAL_USERNAME_TOKEN_BYTES)
+    password = secrets.token_urlsafe(CREDENTIAL_PASSWORD_TOKEN_BYTES)
+    return username, password
+
+
+def redact_sensitive_values(message: str, sensitive_values: Iterable[str]) -> str:
+    redacted = message
+    for value in sensitive_values:
+        if value:
+            redacted = redacted.replace(value, "[redacted]")
+    return redacted
 
 
 def encode_remaining_length(length: int) -> bytes:
@@ -144,6 +163,9 @@ class SimpleMqttBroker:
     def running(self) -> bool:
         return self._server_socket is not None and not self._stop_event.is_set()
 
+    def _emit_log(self, message: str) -> None:
+        self.log(redact_sensitive_values(message, (self.config.username, self.config.password)))
+
     def start(self) -> None:
         if self.running:
             return
@@ -156,7 +178,7 @@ class SimpleMqttBroker:
         self._server_socket = server_socket
         self._accept_thread = threading.Thread(target=self._accept_loop, name="mqtt-accept", daemon=True)
         self._accept_thread.start()
-        self.log(f"MQTT服务器已启动: 0.0.0.0:{self.config.port}")
+        self._emit_log(f"MQTT服务器已启动: 0.0.0.0:{self.config.port}")
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -172,7 +194,7 @@ class SimpleMqttBroker:
             self._clients.clear()
         for client in clients:
             client.close()
-        self.log("MQTT服务器已停止")
+        self._emit_log("MQTT服务器已停止")
 
     def _accept_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -220,7 +242,7 @@ class SimpleMqttBroker:
                     raise MqttProtocolError(f"unsupported packet type {packet_type}")
         except (ConnectionError, OSError, MqttProtocolError) as exc:
             if client.connected:
-                self.log(f"客户端断开: {client.client_id or client.address[0]} ({exc})")
+                self._emit_log(f"客户端断开: {client.client_id or client.address[0]} ({exc})")
         finally:
             self._remove_client(client)
             client.close()
@@ -259,7 +281,7 @@ class SimpleMqttBroker:
 
         if self.config.username and (username != self.config.username or password != self.config.password):
             client.send_packet(0x20, b"\x00\x05")
-            self.log(f"认证失败: {client_id} from {client.address[0]}")
+            self._emit_log(f"认证失败: {client_id} from {client.address[0]}")
             raise MqttProtocolError("bad username or password")
 
         client.client_id = client_id
@@ -270,7 +292,7 @@ class SimpleMqttBroker:
             if old_client is not None and old_client is not client:
                 old_client.close()
             self._clients[client_id] = client
-        self.log(f"客户端已连接: {client_id} / {client.address[0]} / keepalive {keep_alive}s")
+        self._emit_log(f"客户端已连接: {client_id} / {client.address[0]} / keepalive {keep_alive}s")
 
     def _handle_subscribe(self, client: BrokerClient, payload: bytes) -> None:
         if not client.connected:
@@ -298,7 +320,7 @@ class SimpleMqttBroker:
                     client.subscriptions.append(topic_filter)
         client.send_packet(0x90, packet_id + bytes(granted_qos))
         if new_filters:
-            self.log(f"订阅: {client.client_id} -> {', '.join(new_filters)}")
+            self._emit_log(f"订阅: {client.client_id} -> {', '.join(new_filters)}")
 
     def _handle_unsubscribe(self, client: BrokerClient, payload: bytes) -> None:
         if len(payload) < 2:
@@ -330,10 +352,7 @@ class SimpleMqttBroker:
         elif qos > 1:
             raise MqttProtocolError("qos 2 is not supported")
 
-        text_preview = message.decode("utf-8", errors="replace").replace("\r", " ").replace("\n", " ")
-        if len(text_preview) > 160:
-            text_preview = text_preview[:160] + "..."
-        self.log(f"发布: {client.client_id} -> {topic} / {text_preview}")
+        self._emit_log(f"发布: {client.client_id} -> {topic} / {len(message)} bytes")
         self._forward_publish(topic, message)
 
     def _forward_publish(self, topic: str, message: bytes) -> None:
@@ -433,12 +452,13 @@ class HighTacMqttServerGui(tk.Tk):
         self.log_queue: "queue.Queue[str]" = queue.Queue()
         self.broker: Optional[SimpleMqttBroker] = None
         self.addresses = detect_ipv4_addresses()
+        username, password = generate_credentials()
 
         self.station_id_var = tk.StringVar(value=DEFAULT_STATION_ID)
         self.ip_var = tk.StringVar(value=self.addresses[0])
         self.port_var = tk.StringVar(value=str(DEFAULT_PORT))
-        self.username_var = tk.StringVar(value=DEFAULT_USERNAME)
-        self.password_var = tk.StringVar(value=DEFAULT_PASSWORD)
+        self.username_var = tk.StringVar(value=username)
+        self.password_var = tk.StringVar(value=password)
         self.status_var = tk.StringVar(value="未启动")
 
         self._build_ui()
@@ -528,6 +548,8 @@ class HighTacMqttServerGui(tk.Tk):
             raise ValueError("端口必须在 1..65535 之间。")
         if not username:
             raise ValueError("请填写MQTT用户名。")
+        if not password:
+            raise ValueError("请填写MQTT密码。")
         return station_id, port, broker_address, username, password
 
     def _start_server(self) -> None:
@@ -631,6 +653,7 @@ class HighTacMqttServerGui(tk.Tk):
         self._log("配置已复制到剪贴板。")
 
     def _log(self, message: str) -> None:
+        message = redact_sensitive_values(message, (self.username_var.get(), self.password_var.get()))
         timestamp = time.strftime("%H:%M:%S")
         self.log_queue.put(f"[{timestamp}] {message}")
 
@@ -649,10 +672,49 @@ class HighTacMqttServerGui(tk.Tk):
         self.destroy()
 
 
-def main() -> None:
+def run_smoke_test() -> bool:
+    username, password = generate_credentials()
+    if not username or not password:
+        return False
+
+    interpreter = tk.Tcl()
+    if not str(interpreter.call("info", "patchlevel")):
+        return False
+
+    broker = SimpleMqttBroker(
+        BrokerConfig(host="127.0.0.1", port=0, username=username, password=password),
+        log=lambda _message: None,
+    )
+    broker.start()
+    try:
+        return broker.running
+    finally:
+        broker.stop()
+
+
+def write_cli_output(message: str) -> None:
+    if sys.stdout is not None:
+        sys.stdout.write(message + "\n")
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments == ["--version"]:
+        write_cli_output(f"HighTacMqttServerSetup {APP_VERSION}")
+        return 0
+    if arguments == ["--smoke-test"]:
+        try:
+            return 0 if run_smoke_test() else 1
+        except Exception:  # noqa: BLE001 - noninteractive smoke test reports via exit code.
+            return 1
+    if arguments:
+        write_cli_output("Usage: HighTacMqttServerSetup.exe [--version | --smoke-test]")
+        return 2
+
     app = HighTacMqttServerGui()
     app.mainloop()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

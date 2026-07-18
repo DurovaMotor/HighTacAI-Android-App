@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.deepchatdemo.platform.network.PlatformMobileAuthorizationException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -263,7 +264,8 @@ private fun Long.toCacheAgeLabel(): String {
 
 private fun Throwable.toPriceLookupErrorMessage(): String {
     return when (this) {
-        is JianDaoYunPriceApi.JianDaoYunConfigException -> message ?: "缺少简道云接口配置。"
+        is PlatformMobileAuthorizationException ->
+            message ?: "此手机尚未通过后台审批，请先在网页管理平台批准该设备。"
         is JianDaoYunPriceApi.JianDaoYunHttpException -> toPriceLookupErrorMessage()
         else -> message
             ?.takeIf { it.isNotBlank() }
@@ -276,8 +278,8 @@ private fun JianDaoYunPriceApi.JianDaoYunHttpException.toPriceLookupErrorMessage
     val detail = apiMessage.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()
     return when (statusCode) {
         400, 422 -> "简道云请求参数错误$detail"
-        401, 403 -> "简道云认证失败，请检查 API Key 或表单权限$detail"
-        404 -> "简道云表单不存在，请检查 APP_ID 和 ENTRY_ID$detail"
+        401, 403 -> "后台简道云服务未获授权，请联系管理员检查平台配置$detail"
+        404 -> "后台简道云表单配置不存在，请联系管理员检查平台设置$detail"
         408 -> "简道云请求超时，请稍后重试$detail"
         429 -> "简道云请求过于频繁，请稍后重试$detail"
         in 500..599 -> "简道云服务暂时不可用，请稍后重试$detail"

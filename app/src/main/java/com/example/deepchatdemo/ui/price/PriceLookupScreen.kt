@@ -13,12 +13,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.ImageLoader
 import com.example.deepchatdemo.light.domain.LightBinding
+import com.example.deepchatdemo.platform.config.SharedPreferencesPlatformConfigStore
+import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
+import com.example.deepchatdemo.platform.network.newPlatformImageHttpClient
 import com.example.deepchatdemo.price.PriceFilterColumn
 import com.example.deepchatdemo.price.PriceLookupResult
 import com.example.deepchatdemo.price.PriceLookupUiState
@@ -39,6 +46,19 @@ fun PriceLookupScreen(
     onTurnOnLight: (PriceLookupResult) -> Unit,
     onTurnOffLight: (PriceLookupResult) -> Unit
 ) {
+    val applicationContext = LocalContext.current.applicationContext
+    val imageUrlResolver = remember(applicationContext) {
+        PlatformImageUrlResolver(SharedPreferencesPlatformConfigStore(applicationContext))
+    }
+    val imageLoader = remember(applicationContext, imageUrlResolver) {
+        ImageLoader.Builder(applicationContext)
+            .okHttpClient { newPlatformImageHttpClient(imageUrlResolver) }
+            .build()
+    }
+    DisposableEffect(imageLoader) {
+        onDispose(imageLoader::shutdown)
+    }
+
     Column(
         modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -48,6 +68,8 @@ fun PriceLookupScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
+            imageUrlResolver = imageUrlResolver,
+            imageLoader = imageLoader,
             onRetrySearch = onRetrySearch,
             lightBindingForCode = lightBindingForCode,
             onBindLight = onBindLight,
@@ -71,6 +93,8 @@ fun PriceLookupScreen(
 private fun PriceResultContent(
     uiState: PriceLookupUiState,
     modifier: Modifier = Modifier,
+    imageUrlResolver: PlatformImageUrlResolver,
+    imageLoader: ImageLoader,
     onRetrySearch: () -> Unit,
     lightBindingForCode: (String) -> LightBinding?,
     onBindLight: (PriceLookupResult) -> Unit,
@@ -118,6 +142,8 @@ private fun PriceResultContent(
                     items(uiState.results, key = { it.id }) { item ->
                         PriceResultCard(
                             item = item,
+                            imageUrlResolver = imageUrlResolver,
+                            imageLoader = imageLoader,
                             lightBinding = lightBindingForCode(item.code),
                             onBindLight = { onBindLight(item) },
                             onTurnOnLight = { onTurnOnLight(item) },

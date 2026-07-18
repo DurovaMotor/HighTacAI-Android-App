@@ -15,9 +15,10 @@ import com.example.deepchatdemo.catalog.PartsSearchEngine
 import com.example.deepchatdemo.catalog.ScoredPartItem
 import com.example.deepchatdemo.catalog.SearchPlan
 import com.example.deepchatdemo.catalog.SearchPlanApi
-import com.example.deepchatdemo.config.ApiConfig
 import com.example.deepchatdemo.config.ReasoningEffort
 import com.example.deepchatdemo.config.ReasoningPreferenceStore
+import com.example.deepchatdemo.platform.network.AndroidPlatformMobileApiTransportFactory
+import com.example.deepchatdemo.platform.network.PlatformMobileAuthorizationException
 import com.example.deepchatdemo.utils.ImageUtils
 import java.io.InterruptedIOException
 import java.net.ConnectException
@@ -30,8 +31,8 @@ import kotlinx.coroutines.withContext
 class ChatViewModel(
     private val partsCatalogRepository: PartsCatalogRepository,
     private val reasoningPreferenceStore: ReasoningPreferenceStore,
-    private val openAiResponsesApi: OpenAiResponsesApi = OpenAiResponsesApi(),
-    private val searchPlanApi: SearchPlanApi = SearchPlanApi()
+    private val openAiResponsesApi: OpenAiResponsesApi,
+    private val searchPlanApi: SearchPlanApi
 ) : ViewModel() {
     val messages = mutableStateListOf<ChatMessage>()
 
@@ -59,8 +60,8 @@ class ChatViewModel(
         )
     }
 
-    val hasApiKey: Boolean
-        get() = ApiConfig.apiKey.isNotBlank()
+    val hasPlatformAccess: Boolean
+        get() = openAiResponsesApi.hasApprovedDeviceToken
 
     fun onInputTextChange(value: String) {
         inputText = value
@@ -254,7 +255,8 @@ class ChatViewModel(
     private fun friendlyErrorMessage(error: Throwable, hasImage: Boolean): String {
         val message = error.message.orEmpty()
         return when {
-            message == MISSING_API_KEY_MESSAGE -> MISSING_API_KEY_MESSAGE
+            error is PlatformMobileAuthorizationException ->
+                message.ifBlank { PLATFORM_APPROVAL_REQUIRED_MESSAGE }
             message == IMAGE_TOO_LARGE_MESSAGE -> IMAGE_TOO_LARGE_MESSAGE
             message.startsWith(IMAGE_PROCESSING_FAILED_PREFIX) -> IMAGE_PROCESSING_FAILED_MESSAGE
             message.startsWith(HTTP_ERROR_MESSAGE) -> HTTP_ERROR_MESSAGE
@@ -323,8 +325,8 @@ class ChatViewModel(
         private const val RECENT_CONTEXT_MESSAGE_LIMIT = 8
         private const val DEFAULT_IMAGE_PROMPT =
             "请识别并描述这张摩托车配件图片。"
-        private const val MISSING_API_KEY_MESSAGE =
-            "缺少 API Key，请在 local.properties 中配置 OPENAI_API_KEY。"
+        private const val PLATFORM_APPROVAL_REQUIRED_MESSAGE =
+            "此手机尚未通过后台审批，请先在网页管理平台批准该设备。"
         private const val NETWORK_FAILED_MESSAGE =
             "网络连接失败，请检查网络后重试。"
         private const val REQUEST_TIMEOUT_MESSAGE =
@@ -345,9 +347,15 @@ class ChatViewModel(
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     if (modelClass.isAssignableFrom(ChatViewModel::class.java)) {
+                        val applicationContext = context.applicationContext
+                        val transport = AndroidPlatformMobileApiTransportFactory.create(
+                            applicationContext
+                        )
                         return ChatViewModel(
-                            partsCatalogRepository = PartsCatalogRepository(context.applicationContext),
-                            reasoningPreferenceStore = ReasoningPreferenceStore(context.applicationContext)
+                            partsCatalogRepository = PartsCatalogRepository(applicationContext),
+                            reasoningPreferenceStore = ReasoningPreferenceStore(applicationContext),
+                            openAiResponsesApi = OpenAiResponsesApi(transport),
+                            searchPlanApi = SearchPlanApi(transport)
                         ) as T
                     }
                     throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")

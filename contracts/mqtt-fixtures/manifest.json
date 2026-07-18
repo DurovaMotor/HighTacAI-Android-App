@@ -1,0 +1,83 @@
+{
+  "$schema": "./manifest.schema.json",
+  "schema_version": 1,
+  "description": "Golden eStation MQTT payloads shared by Android and backend protocol tests.",
+  "station_id": "90A9F1234567",
+  "fixtures": [
+    {
+      "id": "station-heartbeat",
+      "file": "station-heartbeat.json",
+      "direction": "station_to_backend",
+      "topic": "/estation/90A9F1234567/heartbeat",
+      "qos": 0,
+      "retain": false,
+      "payload_kind": "heartbeat",
+      "valid_json": true,
+      "expected_outcome": "accepted",
+      "correlation": null
+    },
+    {
+      "id": "station-result-ack",
+      "file": "station-result-ack.json",
+      "direction": "station_to_backend",
+      "topic": "/estation/90A9F1234567/result",
+      "qos": 0,
+      "retain": false,
+      "payload_kind": "result_ack",
+      "valid_json": true,
+      "expected_outcome": "accepted",
+      "correlation": {
+        "command_id_present": false,
+        "strategy": "latest_pending_by_station_tag_time",
+        "window_seconds": 10,
+        "state_match_preferred": true
+      }
+    },
+    {
+      "id": "backend-light-command",
+      "file": "backend-light-command.json",
+      "direction": "backend_to_station",
+      "topic": "/estation/90A9F1234567/task",
+      "qos": 0,
+      "retain": false,
+      "payload_kind": "light_command",
+      "valid_json": true,
+      "expected_outcome": "accepted",
+      "correlation": {
+        "command_id_present": false,
+        "strategy": "latest_pending_by_station_tag_time",
+        "window_seconds": 10,
+        "state_match_preferred": true
+      }
+    },
+    {
+      "id": "backend-clear-command",
+      "file": "backend-clear-command.json",
+      "direction": "backend_to_station",
+      "topic": "/estation/90A9F1234567/task",
+      "qos": 0,
+      "retain": false,
+      "payload_kind": "clear_command",
+      "valid_json": true,
+      "expected_outcome": "accepted",
+      "correlation": {
+        "command_id_present": false,
+        "strategy": "latest_pending_by_station_tag_time",
+        "window_seconds": 10,
+        "state_match_preferred": true
+      }
+    },
+    {
+      "id": "malformed-result",
+      "file": "malformed-result.txt",
+      "direction": "station_to_backend",
+      "topic": "/estation/90A9F1234567/result",
+      "qos": 0,
+      "retain": false,
+      "payload_kind": "malformed",
+      "valid_json": false,
+      "expected_outcome": "rejected",
+      "correlation": null
+    }
+  ]
+}

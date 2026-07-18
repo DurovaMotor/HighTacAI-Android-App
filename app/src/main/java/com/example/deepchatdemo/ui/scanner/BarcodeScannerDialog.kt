@@ -8,6 +8,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -425,6 +426,7 @@ private fun CameraPreview(
     )
 }
 
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
 private fun analyzeImage(
     imageProxy: ImageProxy,
     scanner: BarcodeScanner,

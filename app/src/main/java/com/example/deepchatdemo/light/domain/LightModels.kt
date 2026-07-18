@@ -7,8 +7,8 @@ data class StationConfig(
     val alias: String = "",
     val brokerHost: String = SiteMqttDefaults.BROKER_HOST,
     val brokerPort: Int = SiteMqttDefaults.BROKER_PORT,
-    val username: String = "hightac_mqtt",
-    val password: String = "hightac-light",
+    val username: String = "",
+    val password: String = "",
     val tlsEnabled: Boolean = false
 ) {
     val normalizedStationId: String
@@ -43,11 +43,10 @@ data class LightColor(
         val Green = LightColor("绿", red = false, green = true, blue = false)
         val Blue = LightColor("蓝", red = false, green = false, blue = true)
         val Cyan = LightColor("青", red = false, green = true, blue = true)
-        val Purple = LightColor("紫", red = true, green = false, blue = true)
-        val White = LightColor("白", red = true, green = true, blue = true)
+        val Pink = LightColor("粉", red = true, green = false, blue = true)
         val Off = LightColor("灭", red = false, green = false, blue = false)
 
-        val presets: List<LightColor> = listOf(Red, Green, Blue, Cyan, Purple, White)
+        val presets: List<LightColor> = listOf(Red, Green, Blue, Cyan, Pink)
     }
 }
 

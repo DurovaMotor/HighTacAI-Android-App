@@ -1,0 +1,4410 @@
+openapi: 3.1.0
+info:
+  title: HighTac Local Platform API
+  version: 2.0.0
+  summary: Contract for the HighTac LAN management platform.
+  description: |
+    The Windows backend is the source of truth for stations, tags, products,
+    bindings, commands, devices, and audit records. Timestamps are RFC 3339 UTC.
+
+    Admin browser requests use the `hightac_session` cookie. Every mutating
+    admin request also requires `X-CSRF-Token`. Approved Android installations
+    use bearer identity and never receive MQTT credentials. The canonical retry
+    key for retry-safe writes is the `Idempotency-Key` header; keys are scoped to
+    the authenticated principal and retained for at least 24 hours.
+
+    Approved Android devices also use bearer-authenticated, allowlisted mobile
+    proxies for OpenAI-compatible Responses and JianDaoYun catalog reads. Third-
+    party API credentials remain server-side and are never returned to clients.
+  contact:
+    name: HighTac Engineering
+  license:
+    name: Proprietary
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+servers:
+  - url: http://{host}:{port}/api/v1
+    description: HighTac platform on the trusted local network
+    variables:
+      host:
+        default: 192.168.1.105
+      port:
+        default: "8088"
+tags:
+  - name: Authentication
+  - name: Health
+  - name: Dashboard
+  - name: Broker
+  - name: Stations
+  - name: Tags
+  - name: Products
+  - name: Imports
+  - name: Bindings
+  - name: Migrations
+  - name: Commands
+  - name: Mobile proxy
+  - name: Device enrollments
+  - name: Android devices
+  - name: Operation logs
+  - name: Settings
+  - name: Backups
+  - name: Events
+
+paths:
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: loginAdmin
+      summary: Log in as the single site administrator.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+            examples:
+              development:
+                summary: Example administrator credentials; not a runtime account
+                value:
+                  username: example-admin
+                  password: example-only-not-a-runtime-password
+      responses:
+        "200":
+          description: Login succeeded. The session identifier is returned only as an HttpOnly cookie.
+          headers:
+            Set-Cookie:
+              description: HttpOnly, SameSite=Strict admin session cookie.
+              schema:
+                type: string
+                example: hightac_session=opaque; HttpOnly; SameSite=Strict; Path=/
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      operationId: logoutAdmin
+      summary: Revoke the current admin session.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      responses:
+        "204":
+          description: Session revoked.
+          headers:
+            Set-Cookie:
+              description: Expired admin session cookie.
+              schema:
+                type: string
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /auth/me:
+    get:
+      tags: [Authentication]
+      operationId: getCurrentAdmin
+      summary: Return the current administrator.
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Current administrator.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /auth/change-password:
+    post:
+      tags: [Authentication]
+      operationId: changeAdminPassword
+      summary: Change the current administrator password.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          description: Password changed and other sessions revoked.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Report whether the API process is alive.
+      security: []
+      responses:
+        "200":
+          description: Process is alive.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Liveness"
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Report database, migrations, and MQTT bridge readiness.
+      security: []
+      responses:
+        "200":
+          description: All required components are ready.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+        "503":
+          description: One or more required components are not ready.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+  /dashboard/summary:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboardSummary
+      summary: Return the current platform snapshot and operational counts.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      responses:
+        "200":
+          description: Current dashboard snapshot.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /dashboard/trends:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboardTrends
+      summary: Return command, discovery, and incident trend buckets.
+      security:
+        - AdminSession: []
+      parameters:
+        - name: range
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [24h, 7d]
+            default: 24h
+      responses:
+        "200":
+          description: Trend buckets in chronological order.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardTrends"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /broker/status:
+    get:
+      tags: [Broker]
+      operationId: getBrokerStatus
+      summary: Return Windows service, TCP, and backend MQTT status.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      responses:
+        "200":
+          description: Broker status snapshot.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrokerStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /broker/start:
+    post:
+      tags: [Broker]
+      operationId: startBroker
+      summary: Start the fixed HighTacMqttBroker Windows service.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          $ref: "#/components/responses/BrokerControlAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /broker/stop:
+    post:
+      tags: [Broker]
+      operationId: stopBroker
+      summary: Stop the fixed HighTacMqttBroker Windows service.
+      description: The caller must present an explicit confirmation phrase. The API remains available while the broker is stopped.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmationRequest"
+            example:
+              confirmation: STOP BROKER
+      responses:
+        "202":
+          $ref: "#/components/responses/BrokerControlAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /broker/restart:
+    post:
+      tags: [Broker]
+      operationId: restartBroker
+      summary: Restart the fixed HighTacMqttBroker Windows service.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          $ref: "#/components/responses/BrokerControlAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /broker/logs:
+    get:
+      tags: [Broker]
+      operationId: getBrokerLogs
+      summary: Return a bounded tail of the configured Mosquitto log.
+      description: The endpoint accepts no file path and redacts credential-like values.
+      security:
+        - AdminSession: []
+      parameters:
+        - name: lines
+          in: query
+          required: false
+          schema:
+            type: integer
+            enum: [50, 200, 500]
+            default: 200
+      responses:
+        "200":
+          description: Bounded broker log tail.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrokerLogs"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /broker/config-summary:
+    get:
+      tags: [Broker]
+      operationId: getBrokerConfigSummary
+      summary: Return a redacted broker configuration summary.
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Broker configuration without passwords or password-file content.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrokerConfigSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /stations:
+    get:
+      tags: [Stations]
+      operationId: listStations
+      summary: List stations using server-side filtering and pagination.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Search"
+        - name: site_id
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/StationStatus"
+      responses:
+        "200":
+          description: Paginated stations.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StationPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      tags: [Stations]
+      operationId: createStation
+      summary: Add a station to the site inventory.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StationCreate"
+            example:
+              station_id: 90A9F1234567
+              site_id: 2b16ae29-f7ab-4c44-9fc6-a0ca693d9c68
+              alias: Receiving Dock
+      responses:
+        "201":
+          description: Station created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Station"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /stations/{station_id}:
+    parameters:
+      - $ref: "#/components/parameters/StationId"
+    get:
+      tags: [Stations]
+      operationId: getStation
+      summary: Return station details and current connectivity state.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      responses:
+        "200":
+          description: Station details.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Station"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Stations]
+      operationId: updateStation
+      summary: Update the administrator-managed station alias.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/StationPatch"
+            example:
+              alias: Front Warehouse
+      responses:
+        "200":
+          description: Updated station.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Station"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /stations/{station_id}/connection-checklist:
+    parameters:
+      - $ref: "#/components/parameters/StationId"
+    get:
+      tags: [Stations]
+      operationId: getStationConnectionChecklist
+      summary: Generate a redacted station onboarding checklist.
+      description: Credentials are never returned; the checklist identifies the installer-managed credential slot only.
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Station connection checklist.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionChecklist"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /tags:
+    get:
+      tags: [Tags]
+      operationId: listTags
+      summary: List light tags using server-side filtering and pagination.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Search"
+        - name: site_id
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: station_id
+          in: query
+          schema:
+            $ref: "#/components/schemas/StationId"
+        - name: online
+          in: query
+          schema:
+            type: boolean
+        - name: low_battery
+          in: query
+          schema:
+            type: boolean
+        - name: abnormal
+          in: query
+          schema:
+            type: boolean
+        - name: bound
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Paginated light tags.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /tags/{tag_id}:
+    parameters:
+      - $ref: "#/components/parameters/TagId"
+    get:
+      tags: [Tags]
+      operationId: getTag
+      summary: Return a light tag, its active binding, and recent status history.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      responses:
+        "200":
+          description: Light tag details.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /tags/register:
+    post:
+      tags: [Tags]
+      operationId: registerTag
+      summary: Manually register a known light tag.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagRegister"
+            example:
+              tag_id: AD100000048F
+              station_id: 90A9F1234567
+      responses:
+        "201":
+          description: Tag registered.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /tags/low-battery:
+    get:
+      tags: [Tags]
+      operationId: listLowBatteryTags
+      summary: List tags at or below the configured low-battery threshold.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - name: station_id
+          in: query
+          schema:
+            $ref: "#/components/schemas/StationId"
+      responses:
+        "200":
+          description: Paginated low-battery tags.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /tags/abnormal:
+    get:
+      tags: [Tags]
+      operationId: listAbnormalTags
+      summary: List tags currently marked abnormal.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - name: station_id
+          in: query
+          schema:
+            $ref: "#/components/schemas/StationId"
+      responses:
+        "200":
+          description: Paginated abnormal tags.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /products:
+    get:
+      tags: [Products]
+      operationId: listProducts
+      summary: List products and active-binding counts.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Search"
+        - name: product_code
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: product_name
+          in: query
+          schema:
+            type: string
+            maxLength: 256
+        - name: tag_id
+          in: query
+          schema:
+            $ref: "#/components/schemas/TagId"
+        - name: source
+          in: query
+          schema:
+            $ref: "#/components/schemas/ProductSource"
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Paginated products.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      tags: [Products]
+      operationId: createProduct
+      summary: Create a product.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductCreate"
+            example:
+              product_code: 1711A-ABA-PT
+              product_name: HighTac sample product
+      responses:
+        "201":
+          description: Product created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /products/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      tags: [Products]
+      operationId: getProduct
+      summary: Return a product and all current tag bindings.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      responses:
+        "200":
+          description: Product details.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Products]
+      operationId: updateProduct
+      summary: Update product name or active state.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/ProductPatch"
+      responses:
+        "200":
+          description: Updated product.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /products/import-template:
+    get:
+      tags: [Imports]
+      operationId: downloadProductImportTemplate
+      summary: Download the product import workbook template.
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Excel workbook with Product Code required and Product Name optional.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="hightac-product-import.xlsx"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                contentEncoding: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /products/imports:
+    post:
+      tags: [Imports]
+      operationId: createProductImport
+      summary: Upload and preflight a product workbook without changing products.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  contentEncoding: binary
+                  contentMediaType: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+      responses:
+        "202":
+          description: Workbook accepted for preflight.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /products/imports/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      tags: [Imports]
+      operationId: getProductImport
+      summary: Return product import preflight progress and errors.
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Import preflight status.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /products/imports/{id}/errors:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      tags: [Imports]
+      operationId: downloadProductImportErrors
+      summary: Download preflight row errors as CSV.
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: CSV file containing validation failures.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="import-errors.csv"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            text/csv:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /products/imports/{id}/commit:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    post:
+      tags: [Imports]
+      operationId: commitProductImport
+      summary: Atomically commit a successful product import preflight.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Import commit accepted.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportJob"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /bindings:
+    get:
+      tags: [Bindings]
+      operationId: listBindings
+      summary: List current or historical product-to-tag bindings.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - name: product_id
+          in: query
+          schema:
+            $ref: "#/components/schemas/Uuid"
+        - name: product_code
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: tag_id
+          in: query
+          schema:
+            $ref: "#/components/schemas/TagId"
+        - name: station_id
+          in: query
+          schema:
+            $ref: "#/components/schemas/StationId"
+        - name: source
+          in: query
+          schema:
+            $ref: "#/components/schemas/BindingSource"
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: Paginated bindings.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BindingPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      tags: [Bindings]
+      operationId: createBinding
+      summary: Bind a tag to a product, creating the product when absent.
+      description: An active binding for the tag causes 409; use the explicit rebind route to replace it.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BindingCreate"
+            example:
+              product_code: 1711A-ABA-PT
+              product_name: HighTac sample product
+              tag_id: AD100000048F
+              station_id: 90A9F1234567
+      responses:
+        "201":
+          description: Binding created.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Binding"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /bindings/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    delete:
+      tags: [Bindings]
+      operationId: removeBinding
+      summary: Soft-remove an active binding while retaining history.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - name: confirmation
+          in: header
+          required: false
+          description: Admin clients send UNBIND for the required confirmation dialog; approved Android clients omit it.
+          schema:
+            type: string
+            const: UNBIND
+      responses:
+        "200":
+          description: Binding removed, or the original removal result for an idempotent replay.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Binding"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /bindings/{id}/rebind:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    post:
+      tags: [Bindings]
+      operationId: rebindTag
+      summary: Explicitly replace the named active binding with a new product binding.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RebindRequest"
+            example:
+              product_code: 1711A-ABA-PT-NEW
+              product_name: Replacement product
+              expected_tag_id: AD100000048F
+      responses:
+        "200":
+          description: Old binding removed and replacement binding created atomically.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RebindResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /migrations/android-bindings/preview:
+    post:
+      tags: [Migrations]
+      operationId: previewAndroidBindingMigration
+      summary: Classify normalized legacy Android bindings without writing data.
+      description: |
+        The response token is stateless and integrity-protected. It is bound to
+        the approved Android device, the exact ordered normalized records, and
+        the authoritative station, tag, product, and active-binding state that
+        can affect migration. Preview never changes database state.
+      security:
+        - AndroidBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AndroidBindingMigrationPreviewRequest"
+      responses:
+        "200":
+          description: Stateless migration preview.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AndroidBindingMigrationPreview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /migrations/android-bindings/commit:
+    post:
+      tags: [Migrations]
+      operationId: commitAndroidBindingMigration
+      summary: Atomically commit a previously previewed Android binding migration.
+      description: |
+        The request must repeat the exact normalized preview input and token.
+        selected_duplicate_keys may choose at most one DUPLICATE_LEGACY_TAG
+        record per tag. The server takes a SQLite BEGIN IMMEDIATE lock,
+        recomputes the preview, and returns 409 MIGRATION_PREVIEW_STALE before
+        any write when relevant authoritative state differs. Products, tags,
+        MIGRATION bindings, audits, and the idempotency response commit once.
+      security:
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AndroidBindingMigrationCommitRequest"
+      responses:
+        "200":
+          description: Migration committed, or the exact stored idempotent response replayed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AndroidBindingMigrationCommit"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /light-commands:
+    post:
+      tags: [Commands]
+      operationId: createLightCommand
+      summary: Create a light-on or light-off command for a product or explicit tags.
+      description: |
+        Product targets resolve to all active bindings and are partitioned into
+        packets of at most 20 tags. LIGHT_ON always uses beep, flashing, and a
+        five-second duration. MQTT publish produces PUBLISHED, never CONFIRMED.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LightCommandCreate"
+            examples:
+              lightProductRed:
+                summary: Light every actively bound tag for a product
+                value:
+                  action: LIGHT_ON
+                  product_code: 1711A-ABA-PT
+                  color: RED
+              clearOneTag:
+                summary: Clear one tag
+                value:
+                  action: LIGHT_OFF
+                  tag_ids: [AD100000048F]
+      responses:
+        "202":
+          description: Command accepted for asynchronous MQTT publication.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LightCommand"
+              example:
+                id: d7d74ed4-44d7-4934-af3a-a80d93aaf63f
+                action: LIGHT_ON
+                product_id: 12f2390e-301f-4c44-a90d-205b5ff0b39f
+                product_code: 1711A-ABA-PT
+                requested_color: RED
+                status: ACCEPTED
+                target_count: 1
+                confirmed_count: 0
+                unconfirmed_count: 0
+                failed_count: 0
+                created_at: "2026-07-16T08:15:30Z"
+                published_at: null
+                completed_at: null
+                items: []
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /light-commands/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      tags: [Commands]
+      operationId: getLightCommand
+      summary: Return command and per-tag acknowledgement state.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      responses:
+        "200":
+          description: Command state. PUBLISHED means sent, not executed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LightCommand"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /stations/{station_id}/all-off:
+    parameters:
+      - $ref: "#/components/parameters/StationId"
+    post:
+      tags: [Commands]
+      operationId: clearStation
+      summary: Create a light-off command for every actively bound tag at the station.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+        - AndroidBearer: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StationAllOffRequest"
+            example:
+              confirmation: ALL OFF
+      responses:
+        "202":
+          description: Station clear command accepted.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LightCommand"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /mobile/openai/responses:
+    post:
+      tags: [Mobile proxy]
+      operationId: proxyMobileOpenAiResponses
+      summary: Proxy one non-streaming OpenAI-compatible Responses request.
+      description: |
+        Requires an approved Android device token. The backend supplies the
+        upstream Authorization header, overwrites `model` with the configured
+        allowlisted model, and forces `stream` to false. The upstream API key is
+        never accepted from or returned to the Android client.
+      security:
+        - AndroidBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileProxyJsonObject"
+      responses:
+        "200":
+          description: Sanitized JSON response from the configured Responses API.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileProxyJsonObject"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
+  /mobile/jiandaoyun/v5/app/entry/list:
+    post:
+      tags: [Mobile proxy]
+      operationId: proxyMobileJianDaoYunEntryList
+      summary: List forms in the configured JianDaoYun application.
+      description: |
+        The backend injects the upstream Authorization header and configured
+        `app_id`. Client-supplied application or form identifiers are ignored.
+      security:
+        - AndroidBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileProxyJsonObject"
+      responses:
+        "200":
+          description: Sanitized JSON response from JianDaoYun.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileProxyJsonObject"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
+  /mobile/jiandaoyun/v5/app/entry/widget/list:
+    post:
+      tags: [Mobile proxy]
+      operationId: proxyMobileJianDaoYunWidgetList
+      summary: List widgets in the configured JianDaoYun form.
+      description: |
+        The backend injects the upstream Authorization header and overwrites
+        `app_id` and `entry_id` with server-side configuration.
+      security:
+        - AndroidBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileProxyJsonObject"
+      responses:
+        "200":
+          description: Sanitized JSON response from JianDaoYun.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileProxyJsonObject"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
+  /mobile/jiandaoyun/v5/app/entry/data/list:
+    post:
+      tags: [Mobile proxy]
+      operationId: proxyMobileJianDaoYunDataList
+      summary: List records in the configured JianDaoYun form.
+      description: |
+        The backend injects the upstream Authorization header and overwrites
+        `app_id` and `entry_id` with server-side configuration.
+      security:
+        - AndroidBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileProxyJsonObject"
+      responses:
+        "200":
+          description: Sanitized JSON response from JianDaoYun.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileProxyJsonObject"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
+  /mobile/media/{token}:
+    get:
+      tags: [Mobile proxy]
+      operationId: getMobileMedia
+      summary: Fetch a short-lived signed JianDaoYun image through HighTac.
+      description: |
+        The path token is HMAC-signed with a key derived from the server's
+        device-enrollment secret and expires after a short interval. This GET
+        intentionally does not require an Android Authorization header so image
+        loaders can use it directly. The server accepts only HTTPS media URLs
+        on the exact `files.jiandaoyun.com` host, does not follow redirects, and
+        returns only bounded `image/*` responses.
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: Opaque, short-lived signed media capability.
+          schema:
+            type: string
+            minLength: 16
+            maxLength: 8192
+      responses:
+        "200":
+          description: Validated image bytes from the allowlisted media host.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Cache-Control:
+              schema:
+                type: string
+                const: private, no-store
+            X-Content-Type-Options:
+              schema:
+                type: string
+                const: nosniff
+            Content-Security-Policy:
+              schema:
+                type: string
+                const: sandbox; default-src 'none'
+          content:
+            "image/*":
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "504":
+          $ref: "#/components/responses/GatewayTimeout"
+  /device-enrollments:
+    post:
+      tags: [Device enrollments]
+      operationId: createDeviceEnrollment
+      summary: Create or resume an Android installation enrollment.
+      description: Raw ANDROID_ID and private installation key material must never be sent.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceEnrollmentCreate"
+            example:
+              fingerprint_hash: b53b9c2e1d61f3f3d6f470c691e630741e4f2ec95de943dc0c9f71bde7ad1f29
+              installation_key_hash: 70d130a4cbf06c7f3a1767f4c1e24661bde4cb21e5d0b2b13bd6e82401c373a2
+              manufacturer: Example Mobile
+              model: Field-10
+              app_version: 2.0.0
+      responses:
+        "202":
+          description: Enrollment is pending approval. The poll secret is returned once.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceEnrollmentCreated"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /device-enrollments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    get:
+      tags: [Device enrollments]
+      operationId: getDeviceEnrollment
+      summary: Poll enrollment state and receive the approved device token once.
+      description: The poll secret is installation-scoped and is replaced by Android bearer identity after approval.
+      security:
+        - EnrollmentPollSecret: []
+      responses:
+        "200":
+          description: Current enrollment state. `device_token` appears only on the first approved response.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceEnrollmentStatus"
+              examples:
+                pending:
+                  value:
+                    id: 88f22b30-f160-4446-b793-883628620243
+                    status: PENDING
+                    display_name: null
+                    device_id: null
+                    device_token: null
+                    expires_at: "2026-07-17T08:15:30Z"
+                approvedOnce:
+                  value:
+                    id: 88f22b30-f160-4446-b793-883628620243
+                    status: APPROVED
+                    display_name: Receiving Phone
+                    device_id: ba17796c-c44e-4dc5-9afc-e82af7ef0cf1
+                    device_token: htdev_fixture_token_returned_once
+                    expires_at: "2026-07-17T08:15:30Z"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
+          $ref: "#/components/responses/Gone"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /android-devices:
+    get:
+      tags: [Android devices]
+      operationId: listAndroidDevices
+      summary: List pending, approved, and revoked Android installations.
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Search"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/DeviceStatus"
+      responses:
+        "200":
+          description: Paginated Android installations.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AndroidDevicePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /android-devices/{id}/approve:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    post:
+      tags: [Android devices]
+      operationId: approveAndroidDevice
+      summary: Approve a pending Android installation and assign its display name.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRename"
+            example:
+              display_name: Receiving Phone
+      responses:
+        "200":
+          description: Approved Android installation. The bearer token is delivered only through enrollment polling.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AndroidDevice"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /android-devices/{id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    post:
+      tags: [Android devices]
+      operationId: revokeAndroidDevice
+      summary: Revoke an Android installation and its bearer token.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmationRequest"
+            example:
+              confirmation: REVOKE DEVICE
+      responses:
+        "200":
+          description: Revoked Android installation.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AndroidDevice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /android-devices/{id}/rename:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    post:
+      tags: [Android devices]
+      operationId: renameAndroidDevice
+      summary: Set the field-facing name of an Android installation.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceRename"
+      responses:
+        "200":
+          description: Renamed Android installation.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AndroidDevice"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /operation-logs:
+    get:
+      tags: [Operation logs]
+      operationId: listOperationLogs
+      summary: Query the append-only audit record.
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - name: event_type
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: actor_type
+          in: query
+          schema:
+            $ref: "#/components/schemas/ActorType"
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: entity_type
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - name: entity_id
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: occurred_from
+          in: query
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - name: occurred_to
+          in: query
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+      responses:
+        "200":
+          description: Paginated operation records.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationLogPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /operation-logs/export:
+    get:
+      tags: [Operation logs]
+      operationId: exportOperationLogs
+      summary: Export filtered audit records.
+      security:
+        - AdminSession: []
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [csv, xlsx]
+            default: csv
+        - name: event_type
+          in: query
+          schema:
+            type: string
+            maxLength: 128
+        - name: actor_type
+          in: query
+          schema:
+            $ref: "#/components/schemas/ActorType"
+        - name: occurred_from
+          in: query
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+        - name: occurred_to
+          in: query
+          schema:
+            $ref: "#/components/schemas/Timestamp"
+      responses:
+        "200":
+          description: Audit export in the selected format.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: attachment; filename="hightac-operation-logs.csv"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            text/csv:
+              schema:
+                type: string
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                contentEncoding: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /settings/site:
+    get:
+      tags: [Settings]
+      operationId: getSiteSettings
+      summary: Return the single-site settings.
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Site settings.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Settings]
+      operationId: updateSiteSettings
+      summary: Update the single-site name, address, notes, and thresholds.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/SiteSettingsPatch"
+      responses:
+        "200":
+          description: Updated site settings.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /settings/network:
+    get:
+      tags: [Settings]
+      operationId: getNetworkSettings
+      summary: Return non-secret HTTP and MQTT endpoint settings.
+      security:
+        - AdminSession: []
+      responses:
+        "200":
+          description: Redacted network settings.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Settings]
+      operationId: updateNetworkSettings
+      summary: Update non-secret bind address and port settings.
+      description: Credential files and passwords are installer-managed and cannot be changed through this route.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/NetworkSettingsPatch"
+      responses:
+        "200":
+          description: Updated network settings; restart requirements are explicit in the response.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NetworkSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /backups:
+    get:
+      tags: [Backups]
+      operationId: listBackups
+      summary: List platform-created database backups.
+      security:
+        - AdminSession: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Sort"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/BackupStatus"
+      responses:
+        "200":
+          description: Paginated backup records.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackupPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    post:
+      tags: [Backups]
+      operationId: createBackup
+      summary: Start an immediate SQLite online backup.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "202":
+          description: Backup started.
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Backup"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "507":
+          $ref: "#/components/responses/InsufficientStorage"
+  /backups/{id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+    post:
+      tags: [Backups]
+      operationId: restoreBackup
+      summary: Validate and restore a platform-created database backup.
+      description: A pre-restore backup is created before writes and MQTT command scheduling are paused.
+      security:
+        - AdminSession: []
+          CsrfToken: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+            example:
+              confirmation: RESTORE BACKUP
+              expected_sha256: 9e107d9d372bb6826bd81d3542a419d6e6299f6ae24c42b2762c9b6f55d25e5f
+      responses:
+        "202":
+          description: Restore accepted; progress is reported as system.notice events until the API restarts.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestoreOperation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "507":
+          $ref: "#/components/responses/InsufficientStorage"
+  /ws/events:
+    get:
+      tags: [Events]
+      operationId: connectEventStream
+      summary: Upgrade to the versioned real-time event stream.
+      description: |
+        Browser clients authenticate through the admin cookie. Android clients
+        send the bearer token in the upgrade request. Messages conform to
+        `contracts/events.schema.json`. The server does not replay event history;
+        after every reconnect, clients must refresh their REST snapshots.
+      security:
+        - AdminSession: []
+        - AndroidBearer: []
+      x-websocket-message-schema: ./events.schema.json
+      responses:
+        "101":
+          description: WebSocket protocol switched; subsequent frames are UTF-8 JSON events.
+          headers:
+            Upgrade:
+              schema:
+                type: string
+                const: websocket
+            Connection:
+              schema:
+                type: string
+                const: Upgrade
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "426":
+          description: A WebSocket upgrade request is required.
+          headers:
+            Upgrade:
+              schema:
+                type: string
+                const: websocket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+components:
+  securitySchemes:
+    AdminSession:
+      type: apiKey
+      in: cookie
+      name: hightac_session
+      description: Opaque HttpOnly SameSite=Strict administrator session cookie.
+    CsrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Required together with AdminSession on every mutating browser request.
+    AndroidBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-device-token
+      description: Approved installation token stored in Android Keystore; only its hash is stored server-side.
+    EnrollmentPollSecret:
+      type: apiKey
+      in: header
+      name: X-Enrollment-Secret
+      description: Short-lived installation-scoped secret returned once when enrollment is created.
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: One-based page number.
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      description: Number of records per page.
+      schema:
+        type: integer
+        enum: [20, 50, 100]
+        default: 20
+    Sort:
+      name: sort
+      in: query
+      required: false
+      description: Comma-separated allowlisted fields; prefix a field with `-` for descending order.
+      schema:
+        type: string
+        maxLength: 256
+        example: -updated_at
+    Search:
+      name: q
+      in: query
+      required: false
+      description: Trimmed case-insensitive search text.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Client-generated UUID. Reusing a key with the same method, path, actor,
+        and normalized body returns the original result. Reusing it with a
+        different request returns 409 IDEMPOTENCY_KEY_REUSED.
+      schema:
+        type: string
+        format: uuid
+      example: 2ec5fd45-0e4d-4be4-a6bd-3517118b64df
+    StationId:
+      name: station_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/StationId"
+    TagId:
+      name: tag_id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/TagId"
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+  headers:
+    RequestId:
+      description: Correlation identifier for logs and support diagnostics.
+      schema:
+        type: string
+        format: uuid
+    Location:
+      description: Relative API path of the created or accepted resource.
+      schema:
+        type: string
+        example: /api/v1/light-commands/d7d74ed4-44d7-4934-af3a-a80d93aaf63f
+  responses:
+    BrokerControlAccepted:
+      description: Broker service control accepted. Final state arrives through the WebSocket stream.
+      headers:
+        Location:
+          $ref: "#/components/headers/Location"
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/BrokerControlOperation"
+    BadRequest:
+      description: Request syntax or confirmation value is invalid.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            error:
+              code: BAD_REQUEST
+              message: The request could not be processed.
+              details: []
+              request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+    Unauthorized:
+      description: Authentication is missing, invalid, expired, or revoked.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            error:
+              code: AUTHENTICATION_REQUIRED
+              message: Valid authentication is required.
+              details: []
+              request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+    Forbidden:
+      description: The authenticated actor lacks permission, CSRF validation failed, or the Android device is not approved.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            error:
+              code: FORBIDDEN
+              message: This actor cannot perform the requested operation.
+              details: []
+              request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+    NotFound:
+      description: The requested resource does not exist.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            error:
+              code: NOT_FOUND
+              message: The requested resource was not found.
+              details: []
+              request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+    Conflict:
+      description: Current resource state conflicts with the request or an idempotency key was reused for a different request.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          examples:
+            activeBinding:
+              value:
+                error:
+                  code: TAG_ALREADY_BOUND
+                  message: The tag already has an active binding; explicit rebind is required.
+                  details:
+                    - field: tag_id
+                      code: ACTIVE_BINDING_EXISTS
+                      message: Tag AD100000048F is bound to product 1711A-OLD.
+                  request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+            idempotencyMismatch:
+              value:
+                error:
+                  code: IDEMPOTENCY_KEY_REUSED
+                  message: The idempotency key belongs to a different request.
+                  details: []
+                  request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+            migrationPreviewMismatch:
+              value:
+                error:
+                  code: MIGRATION_PREVIEW_MISMATCH
+                  message: The preview token does not match this device and record set.
+                  details: []
+                  request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+            migrationPreviewStale:
+              value:
+                error:
+                  code: MIGRATION_PREVIEW_STALE
+                  message: Authoritative binding state changed after the preview.
+                  details: []
+                  request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+    Gone:
+      description: An enrollment, one-time delivery window, or signed media link has expired.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    PayloadTooLarge:
+      description: A request, uploaded workbook, or proxied media response exceeds its configured size limit.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    UnsupportedMediaType:
+      description: Request content or a proxied media response has an unsupported media type.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ValidationError:
+      description: One or more path, query, header, or body values failed validation.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: One or more values are invalid.
+              details:
+                - field: tag_id
+                  code: PATTERN_MISMATCH
+                  message: Must match ^AD1[0-9A-F]{9}$.
+              request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+    TooManyRequests:
+      description: Rate limit exceeded.
+      headers:
+        Retry-After:
+          description: Seconds before another attempt.
+          schema:
+            type: integer
+            minimum: 1
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    ServiceUnavailable:
+      description: A required platform component such as the MQTT bridge or Windows service controller is unavailable.
+      headers:
+        Retry-After:
+          description: Suggested retry delay in seconds.
+          schema:
+            type: integer
+            minimum: 1
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+          example:
+            error:
+              code: MQTT_UNAVAILABLE
+              message: The broker is not available; no command was created.
+              details: []
+              request_id: b6d35a55-63ac-4b0e-99ae-78262b27c7da
+    BadGateway:
+      description: The configured third-party service failed or rejected its server credential.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    GatewayTimeout:
+      description: The configured third-party service did not respond before the server timeout.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    InsufficientStorage:
+      description: The platform data volume lacks space for the backup or pre-restore copy.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    MobileProxyJsonObject:
+      type: object
+      description: Provider-defined JSON with server-managed credentials omitted.
+      additionalProperties: true
+    Uuid:
+      type: string
+      format: uuid
+      example: 2b16ae29-f7ab-4c44-9fc6-a0ca693d9c68
+    Timestamp:
+      type: string
+      format: date-time
+      example: "2026-07-16T08:15:30Z"
+    StationId:
+      type: string
+      pattern: ^90A9F[0-9A-F]{7}$
+      example: 90A9F1234567
+    TagId:
+      type: string
+      pattern: ^AD1[0-9A-F]{9}$
+      example: AD100000048F
+    Sha256:
+      type: string
+      pattern: ^[0-9a-f]{64}$
+      example: 9e107d9d372bb6826bd81d3542a419d6e6299f6ae24c42b2762c9b6f55d25e5f
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/Error"
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message, details, request_id]
+      properties:
+        code:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_]{1,63}$
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        details:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+        request_id:
+          $ref: "#/components/schemas/Uuid"
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required: [field, code, message]
+      properties:
+        field:
+          type: [string, "null"]
+          maxLength: 256
+        code:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_]{1,63}$
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1024
+    PaginationMeta:
+      type: object
+      additionalProperties: false
+      required: [page, page_size, total_items, total_pages]
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        page_size:
+          type: integer
+          enum: [20, 50, 100]
+        total_items:
+          type: integer
+          minimum: 0
+        total_pages:
+          type: integer
+          minimum: 0
+    AdminUser:
+      type: object
+      additionalProperties: false
+      required: [id, username, must_change_password, is_active, created_at, last_login_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        username:
+          type: string
+          minLength: 1
+          maxLength: 64
+          example: Adam
+        must_change_password:
+          type: boolean
+        is_active:
+          type: boolean
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        last_login_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 64
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+    LoginResponse:
+      type: object
+      additionalProperties: false
+      required: [user, csrf_token, session_expires_at]
+      properties:
+        user:
+          $ref: "#/components/schemas/AdminUser"
+        csrf_token:
+          type: string
+          minLength: 32
+          maxLength: 256
+          description: Non-cookie token sent as X-CSRF-Token on mutating admin requests.
+        session_expires_at:
+          $ref: "#/components/schemas/Timestamp"
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+        new_password:
+          type: string
+          minLength: 12
+          maxLength: 1024
+          writeOnly: true
+    ConfirmationRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation]
+      properties:
+        confirmation:
+          type: string
+          minLength: 1
+          maxLength: 64
+    Liveness:
+      type: object
+      additionalProperties: false
+      required: [status, service, version, checked_at]
+      properties:
+        status:
+          type: string
+          const: alive
+        service:
+          type: string
+          const: HighTacPlatform
+        version:
+          type: string
+          minLength: 1
+          maxLength: 64
+        checked_at:
+          $ref: "#/components/schemas/Timestamp"
+    CheckStatus:
+      type: string
+      enum: [READY, DEGRADED, NOT_READY]
+    ReadinessCheck:
+      type: object
+      additionalProperties: false
+      required: [name, status, message, checked_at]
+      properties:
+        name:
+          type: string
+          enum: [database, migrations, mqtt_bridge]
+        status:
+          $ref: "#/components/schemas/CheckStatus"
+        message:
+          type: string
+          maxLength: 512
+        checked_at:
+          $ref: "#/components/schemas/Timestamp"
+    Readiness:
+      type: object
+      additionalProperties: false
+      required: [status, checks, checked_at]
+      properties:
+        status:
+          $ref: "#/components/schemas/CheckStatus"
+        checks:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/ReadinessCheck"
+        checked_at:
+          $ref: "#/components/schemas/Timestamp"
+    DashboardSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - api_status
+        - broker
+        - station_counts
+        - tag_counts
+        - product_counts
+        - command_counts_24h
+        - device_counts
+        - recent_incidents
+        - recent_operations
+        - generated_at
+      properties:
+        api_status:
+          $ref: "#/components/schemas/CheckStatus"
+        broker:
+          $ref: "#/components/schemas/BrokerStatus"
+        station_counts:
+          $ref: "#/components/schemas/StationCounts"
+        tag_counts:
+          $ref: "#/components/schemas/TagCounts"
+        product_counts:
+          $ref: "#/components/schemas/ProductCounts"
+        command_counts_24h:
+          $ref: "#/components/schemas/CommandCounts"
+        device_counts:
+          $ref: "#/components/schemas/DeviceCounts"
+        recent_incidents:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/DashboardIncident"
+        recent_operations:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/OperationLog"
+        generated_at:
+          $ref: "#/components/schemas/Timestamp"
+    StationCounts:
+      type: object
+      additionalProperties: false
+      required: [total, online, stale, offline, unknown]
+      properties:
+        total: {type: integer, minimum: 0}
+        online: {type: integer, minimum: 0}
+        stale: {type: integer, minimum: 0}
+        offline: {type: integer, minimum: 0}
+        unknown: {type: integer, minimum: 0}
+    TagCounts:
+      type: object
+      additionalProperties: false
+      required: [total, discovered_24h, low_battery, abnormal, unbound]
+      properties:
+        total: {type: integer, minimum: 0}
+        discovered_24h: {type: integer, minimum: 0}
+        low_battery: {type: integer, minimum: 0}
+        abnormal: {type: integer, minimum: 0}
+        unbound: {type: integer, minimum: 0}
+    ProductCounts:
+      type: object
+      additionalProperties: false
+      required: [total, active_bindings]
+      properties:
+        total: {type: integer, minimum: 0}
+        active_bindings: {type: integer, minimum: 0}
+    CommandCounts:
+      type: object
+      additionalProperties: false
+      required: [total, confirmed, partially_confirmed, unconfirmed, failed, confirmation_rate]
+      properties:
+        total: {type: integer, minimum: 0}
+        confirmed: {type: integer, minimum: 0}
+        partially_confirmed: {type: integer, minimum: 0}
+        unconfirmed: {type: integer, minimum: 0}
+        failed: {type: integer, minimum: 0}
+        confirmation_rate: {type: number, minimum: 0, maximum: 1}
+    DeviceCounts:
+      type: object
+      additionalProperties: false
+      required: [pending, approved, revoked, online]
+      properties:
+        pending: {type: integer, minimum: 0}
+        approved: {type: integer, minimum: 0}
+        revoked: {type: integer, minimum: 0}
+        online: {type: integer, minimum: 0}
+    DashboardIncident:
+      type: object
+      additionalProperties: false
+      required: [id, severity, code, message, entity_type, entity_id, occurred_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        severity:
+          type: string
+          enum: [INFO, WARNING, ERROR]
+        code:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_]{1,63}$
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        entity_type:
+          type: string
+          maxLength: 64
+        entity_id:
+          type: [string, "null"]
+          maxLength: 128
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+    DashboardTrendPoint:
+      type: object
+      additionalProperties: false
+      required: [bucket_start, commands, confirmed, tags_discovered, incidents]
+      properties:
+        bucket_start:
+          $ref: "#/components/schemas/Timestamp"
+        commands: {type: integer, minimum: 0}
+        confirmed: {type: integer, minimum: 0}
+        tags_discovered: {type: integer, minimum: 0}
+        incidents: {type: integer, minimum: 0}
+    DashboardTrends:
+      type: object
+      additionalProperties: false
+      required: [range, bucket_seconds, points, generated_at]
+      properties:
+        range:
+          type: string
+          enum: [24h, 7d]
+        bucket_seconds:
+          type: integer
+          minimum: 1
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardTrendPoint"
+        generated_at:
+          $ref: "#/components/schemas/Timestamp"
+    BrokerServiceState:
+      type: string
+      enum: [STOPPED, STARTING, RUNNING, STOPPING, FAILED, UNKNOWN]
+    BrokerStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - service_name
+        - service_state
+        - endpoint
+        - tcp_reachable
+        - mqtt_connected
+        - subscriptions_ready
+        - started_at
+        - uptime_seconds
+        - checked_at
+      properties:
+        service_name:
+          type: string
+          const: HighTacMqttBroker
+        service_state:
+          $ref: "#/components/schemas/BrokerServiceState"
+        endpoint:
+          type: string
+          pattern: ^[^\s:]+:\d{1,5}$
+          example: 192.168.1.105:1884
+        tcp_reachable:
+          type: boolean
+        mqtt_connected:
+          type: boolean
+        subscriptions_ready:
+          type: boolean
+        started_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        uptime_seconds:
+          type: [integer, "null"]
+          minimum: 0
+        checked_at:
+          $ref: "#/components/schemas/Timestamp"
+    BrokerControlOperation:
+      type: object
+      additionalProperties: false
+      required: [id, action, status, requested_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        action:
+          type: string
+          enum: [START, STOP, RESTART]
+        status:
+          type: string
+          enum: [ACCEPTED, RUNNING, SUCCEEDED, FAILED]
+        requested_at:
+          $ref: "#/components/schemas/Timestamp"
+    BrokerLogs:
+      type: object
+      additionalProperties: false
+      required: [service_name, requested_lines, returned_lines, lines, truncated, read_at]
+      properties:
+        service_name:
+          type: string
+          const: HighTacMqttBroker
+        requested_lines:
+          type: integer
+          enum: [50, 200, 500]
+        returned_lines:
+          type: integer
+          minimum: 0
+          maximum: 500
+        lines:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            maxLength: 4096
+        truncated:
+          type: boolean
+        read_at:
+          $ref: "#/components/schemas/Timestamp"
+    BrokerConfigSummary:
+      type: object
+      additionalProperties: false
+      required: [service_name, listener_host, listener_port, tls_enabled, anonymous_enabled, persistence_enabled, backend_username, station_account_count]
+      properties:
+        service_name:
+          type: string
+          const: HighTacMqttBroker
+        listener_host:
+          type: string
+          minLength: 1
+          maxLength: 255
+        listener_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        tls_enabled:
+          type: boolean
+        anonymous_enabled:
+          type: boolean
+          const: false
+        persistence_enabled:
+          type: boolean
+        backend_username:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Username only; no password or hash is exposed.
+        station_account_count:
+          type: integer
+          minimum: 0
+    StationStatus:
+      type: string
+      enum: [UNKNOWN, ONLINE, STALE, OFFLINE]
+    StationCreate:
+      type: object
+      additionalProperties: false
+      required: [station_id, site_id]
+      properties:
+        station_id:
+          $ref: "#/components/schemas/StationId"
+        site_id:
+          $ref: "#/components/schemas/Uuid"
+        alias:
+          type: [string, "null"]
+          maxLength: 128
+    StationPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        alias:
+          type: [string, "null"]
+          maxLength: 128
+    Station:
+      type: object
+      additionalProperties: false
+      required:
+        - station_id
+        - site_id
+        - alias
+        - status
+        - mac
+        - firmware_version
+        - server_address
+        - heartbeat_seconds
+        - last_heartbeat_at
+        - total_count
+        - send_count
+        - broker_connected
+        - created_at
+        - updated_at
+      properties:
+        station_id:
+          $ref: "#/components/schemas/StationId"
+        site_id:
+          $ref: "#/components/schemas/Uuid"
+        alias:
+          type: [string, "null"]
+          maxLength: 128
+        status:
+          $ref: "#/components/schemas/StationStatus"
+        mac:
+          type: [string, "null"]
+          maxLength: 64
+        firmware_version:
+          type: [string, "null"]
+          maxLength: 64
+        server_address:
+          type: [string, "null"]
+          maxLength: 255
+        heartbeat_seconds:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 3600
+        last_heartbeat_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        total_count:
+          type: integer
+          minimum: 0
+        send_count:
+          type: integer
+          minimum: 0
+        broker_connected:
+          type: boolean
+          description: Separates backend MQTT connectivity from station liveness.
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+    StationPage:
+      type: object
+      additionalProperties: false
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Station"
+        pagination:
+          $ref: "#/components/schemas/PaginationMeta"
+    ConnectionChecklistItem:
+      type: object
+      additionalProperties: false
+      required: [key, label, value, sensitive, status]
+      properties:
+        key:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{1,63}$
+        label:
+          type: string
+          minLength: 1
+          maxLength: 128
+        value:
+          type: string
+          maxLength: 512
+        sensitive:
+          type: boolean
+        status:
+          type: string
+          enum: [READY, ACTION_REQUIRED, NOT_APPLICABLE]
+    ConnectionChecklist:
+      type: object
+      additionalProperties: false
+      required: [station_id, items, generated_at]
+      properties:
+        station_id:
+          $ref: "#/components/schemas/StationId"
+        items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ConnectionChecklistItem"
+        generated_at:
+          $ref: "#/components/schemas/Timestamp"
+    BatteryLevel:
+      type: [integer, "null"]
+      enum: [0, 10, 30, 60, 80, 90, 100, null]
+    Tag:
+      type: object
+      additionalProperties: false
+      required:
+        - tag_id
+        - site_id
+        - station_id
+        - registered_at
+        - first_seen_at
+        - last_seen_at
+        - online
+        - battery_raw
+        - battery_voltage
+        - battery_level
+        - low_battery
+        - firmware_version
+        - group_no
+        - last_result_type
+        - is_abnormal
+        - abnormal_reason
+        - active_binding_id
+      properties:
+        tag_id:
+          $ref: "#/components/schemas/TagId"
+        site_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        station_id:
+          oneOf:
+            - $ref: "#/components/schemas/StationId"
+            - type: "null"
+        registered_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        first_seen_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        last_seen_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        online:
+          type: boolean
+        battery_raw:
+          type: [integer, "null"]
+          minimum: 0
+        battery_voltage:
+          type: [number, "null"]
+          minimum: 0
+        battery_level:
+          $ref: "#/components/schemas/BatteryLevel"
+        low_battery:
+          type: boolean
+        firmware_version:
+          type: [string, "null"]
+          maxLength: 64
+        group_no:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 255
+        last_result_type:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 255
+        is_abnormal:
+          type: boolean
+        abnormal_reason:
+          type: [string, "null"]
+          maxLength: 512
+        active_binding_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+    TagStatusHistoryItem:
+      type: object
+      additionalProperties: false
+      required: [id, occurred_at, online, battery_raw, battery_level, result_type, is_abnormal, abnormal_reason]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+        online:
+          type: boolean
+        battery_raw:
+          type: [integer, "null"]
+          minimum: 0
+        battery_level:
+          $ref: "#/components/schemas/BatteryLevel"
+        result_type:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 255
+        is_abnormal:
+          type: boolean
+        abnormal_reason:
+          type: [string, "null"]
+          maxLength: 512
+    TagDetail:
+      type: object
+      additionalProperties: false
+      required: [tag, active_binding, recent_history]
+      properties:
+        tag:
+          $ref: "#/components/schemas/Tag"
+        active_binding:
+          oneOf:
+            - $ref: "#/components/schemas/Binding"
+            - type: "null"
+        recent_history:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/TagStatusHistoryItem"
+    TagRegister:
+      type: object
+      additionalProperties: false
+      required: [tag_id, station_id]
+      properties:
+        tag_id:
+          $ref: "#/components/schemas/TagId"
+        station_id:
+          $ref: "#/components/schemas/StationId"
+    TagPage:
+      type: object
+      additionalProperties: false
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+        pagination:
+          $ref: "#/components/schemas/PaginationMeta"
+    ProductSource:
+      type: string
+      enum: [BINDING, EXCEL]
+    ProductCode:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: ^\S(?:.*\S)?$
+      description: Trimmed and uppercased before uniqueness checks.
+      example: 1711A-ABA-PT
+    ProductCreate:
+      type: object
+      additionalProperties: false
+      required: [product_code]
+      properties:
+        product_code:
+          $ref: "#/components/schemas/ProductCode"
+        product_name:
+          type: [string, "null"]
+          maxLength: 256
+    ProductPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        product_name:
+          type: [string, "null"]
+          maxLength: 256
+        is_active:
+          type: boolean
+    Product:
+      type: object
+      additionalProperties: false
+      required: [id, product_code, product_name, source, is_active, active_binding_count, created_at, updated_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        product_code:
+          $ref: "#/components/schemas/ProductCode"
+        product_name:
+          type: [string, "null"]
+          maxLength: 256
+        source:
+          $ref: "#/components/schemas/ProductSource"
+        is_active:
+          type: boolean
+        active_binding_count:
+          type: integer
+          minimum: 0
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+    ProductDetail:
+      type: object
+      additionalProperties: false
+      required: [product, active_bindings]
+      properties:
+        product:
+          $ref: "#/components/schemas/Product"
+        active_bindings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Binding"
+    ProductPage:
+      type: object
+      additionalProperties: false
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+        pagination:
+          $ref: "#/components/schemas/PaginationMeta"
+    ImportStatus:
+      type: string
+      enum: [UPLOADED, VALIDATING, READY, INVALID, COMMITTING, COMMITTED, FAILED]
+    ImportRowError:
+      type: object
+      additionalProperties: false
+      required: [row_number, field, code, message, value]
+      properties:
+        row_number:
+          type: integer
+          minimum: 2
+        field:
+          type: string
+          enum: [product_code, product_name, workbook]
+        code:
+          type: string
+          pattern: ^[A-Z][A-Z0-9_]{1,63}$
+        message:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        value:
+          type: [string, number, boolean, "null"]
+    ImportJob:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - filename
+        - status
+        - total_rows
+        - valid_rows
+        - error_rows
+        - errors
+        - errors_truncated
+        - created_at
+        - validated_at
+        - committed_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+        status:
+          $ref: "#/components/schemas/ImportStatus"
+        total_rows:
+          type: integer
+          minimum: 0
+        valid_rows:
+          type: integer
+          minimum: 0
+        error_rows:
+          type: integer
+          minimum: 0
+        errors:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ImportRowError"
+        errors_truncated:
+          type: boolean
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        validated_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        committed_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    BindingSource:
+      type: string
+      enum: [ANDROID, WEB, MIGRATION]
+    ActorType:
+      type: string
+      enum: [ADMIN, ANDROID, SYSTEM]
+    BindingCreate:
+      type: object
+      additionalProperties: false
+      required: [product_code, tag_id, station_id]
+      properties:
+        product_code:
+          $ref: "#/components/schemas/ProductCode"
+        product_name:
+          type: [string, "null"]
+          maxLength: 256
+        tag_id:
+          $ref: "#/components/schemas/TagId"
+        station_id:
+          $ref: "#/components/schemas/StationId"
+    Binding:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - product_id
+        - product_code
+        - product_name
+        - tag_id
+        - site_id
+        - station_id
+        - source
+        - actor_type
+        - actor_id
+        - actor_display_name
+        - bound_at
+        - unbound_at
+        - is_active
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        product_id:
+          $ref: "#/components/schemas/Uuid"
+        product_code:
+          $ref: "#/components/schemas/ProductCode"
+        product_name:
+          type: [string, "null"]
+          maxLength: 256
+        tag_id:
+          $ref: "#/components/schemas/TagId"
+        site_id:
+          $ref: "#/components/schemas/Uuid"
+        station_id:
+          $ref: "#/components/schemas/StationId"
+        source:
+          $ref: "#/components/schemas/BindingSource"
+        actor_type:
+          $ref: "#/components/schemas/ActorType"
+        actor_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        actor_display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        bound_at:
+          $ref: "#/components/schemas/Timestamp"
+        unbound_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        is_active:
+          type: boolean
+    BindingPage:
+      type: object
+      additionalProperties: false
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Binding"
+        pagination:
+          $ref: "#/components/schemas/PaginationMeta"
+    RebindRequest:
+      type: object
+      additionalProperties: false
+      required: [product_code, expected_tag_id]
+      properties:
+        product_code:
+          $ref: "#/components/schemas/ProductCode"
+        product_name:
+          type: [string, "null"]
+          maxLength: 256
+        expected_tag_id:
+          $ref: "#/components/schemas/TagId"
+    RebindResult:
+      type: object
+      additionalProperties: false
+      required: [removed_binding, created_binding]
+      properties:
+        removed_binding:
+          $ref: "#/components/schemas/Binding"
+        created_binding:
+          $ref: "#/components/schemas/Binding"
+    AndroidBindingMigrationClientRecordKey:
+      type: string
+      minLength: 1
+      maxLength: 256
+      pattern: '^\S(?:.*\S)?$'
+      description: |
+        Opaque deterministic identity for one persisted legacy record. Android
+        must derive it from stable local record identity plus normalized tag,
+        product, and station values and reuse it unchanged for preview, commit,
+        duplicate selection, and retries.
+      example: 27ee8d94-71fb-40a4-8a2b-c399621a8fb5|AD100000048F|1711A-ABA-PT|90A9F1234567
+    AndroidBindingMigrationTagIdInput:
+      type: string
+      minLength: 9
+      maxLength: 12
+      pattern: '^(?:[Aa][Dd]1)?[0-9A-Fa-f]{9}$'
+      description: A full or legacy nine-hex tag ID; the server returns canonical uppercase AD1 form.
+      example: 00000048F
+    AndroidBindingMigrationStationIdInput:
+      type: string
+      minLength: 12
+      maxLength: 12
+      pattern: '^90[Aa]9[Ff][0-9A-Fa-f]{7}$'
+      description: Canonicalized to uppercase before preview hashing.
+      example: 90A9F1234567
+    AndroidBindingMigrationRecord:
+      type: object
+      additionalProperties: false
+      required: [client_record_key, product_code, tag_id, station_id]
+      properties:
+        client_record_key:
+          $ref: "#/components/schemas/AndroidBindingMigrationClientRecordKey"
+        product_code:
+          $ref: "#/components/schemas/ProductCode"
+        product_name:
+          type: [string, "null"]
+          maxLength: 256
+        tag_id:
+          $ref: "#/components/schemas/AndroidBindingMigrationTagIdInput"
+        station_id:
+          $ref: "#/components/schemas/AndroidBindingMigrationStationIdInput"
+    AndroidBindingMigrationPreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [records]
+      properties:
+        records:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          description: Ordered normalized records with unique client_record_key values.
+          items:
+            $ref: "#/components/schemas/AndroidBindingMigrationRecord"
+    AndroidBindingMigrationClassification:
+      type: string
+      enum:
+        - MIGRATABLE
+        - IDENTICAL
+        - DUPLICATE_LEGACY_TAG
+        - TAG_BOUND_TO_DIFFERENT_PRODUCT
+        - STATION_MISMATCH
+        - STATION_NOT_FOUND
+    AndroidBindingMigrationPreviewRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - client_record_key
+        - product_code
+        - product_name
+        - tag_id
+        - station_id
+        - classification
+        - authoritative_binding_id
+        - authoritative_product_code
+        - authoritative_station_id
+      properties:
+        client_record_key:
+          $ref: "#/components/schemas/AndroidBindingMigrationClientRecordKey"
+        product_code:
+          $ref: "#/components/schemas/ProductCode"
+        product_name:
+          type: [string, "null"]
+          maxLength: 256
+        tag_id:
+          $ref: "#/components/schemas/TagId"
+        station_id:
+          $ref: "#/components/schemas/StationId"
+        classification:
+          $ref: "#/components/schemas/AndroidBindingMigrationClassification"
+        authoritative_binding_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        authoritative_product_code:
+          oneOf:
+            - $ref: "#/components/schemas/ProductCode"
+            - type: "null"
+        authoritative_station_id:
+          oneOf:
+            - $ref: "#/components/schemas/StationId"
+            - type: "null"
+    AndroidBindingMigrationPreviewSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - total_records
+        - migratable
+        - identical
+        - duplicate_legacy_tag
+        - tag_bound_to_different_product
+        - station_mismatch
+        - station_not_found
+      properties:
+        total_records:
+          type: integer
+          minimum: 1
+          maximum: 2000
+        migratable:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        identical:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        duplicate_legacy_tag:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        tag_bound_to_different_product:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        station_mismatch:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        station_not_found:
+          type: integer
+          minimum: 0
+          maximum: 2000
+    AndroidBindingMigrationPreviewToken:
+      type: string
+      minLength: 32
+      maxLength: 2048
+      pattern: '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'
+      description: Integrity-protected stateless token bound to device, records, and relevant authoritative state.
+    AndroidBindingMigrationPreview:
+      type: object
+      additionalProperties: false
+      required: [preview_token, summary, records]
+      properties:
+        preview_token:
+          $ref: "#/components/schemas/AndroidBindingMigrationPreviewToken"
+        summary:
+          $ref: "#/components/schemas/AndroidBindingMigrationPreviewSummary"
+        records:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          items:
+            $ref: "#/components/schemas/AndroidBindingMigrationPreviewRecord"
+    AndroidBindingMigrationCommitRequest:
+      type: object
+      additionalProperties: false
+      required: [records, preview_token, selected_duplicate_keys]
+      properties:
+        records:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          description: Exact ordered normalized records used for the preview.
+          items:
+            $ref: "#/components/schemas/AndroidBindingMigrationRecord"
+        preview_token:
+          $ref: "#/components/schemas/AndroidBindingMigrationPreviewToken"
+        selected_duplicate_keys:
+          type: array
+          maxItems: 2000
+          uniqueItems: true
+          description: Zero or one DUPLICATE_LEGACY_TAG client key per duplicate tag.
+          items:
+            $ref: "#/components/schemas/AndroidBindingMigrationClientRecordKey"
+    AndroidBindingMigrationOutcome:
+      type: string
+      enum: [MIGRATED, IDENTICAL, SKIPPED]
+    AndroidBindingMigrationCommitRecord:
+      type: object
+      additionalProperties: false
+      required: [client_record_key, classification, outcome, binding_id]
+      properties:
+        client_record_key:
+          $ref: "#/components/schemas/AndroidBindingMigrationClientRecordKey"
+        classification:
+          $ref: "#/components/schemas/AndroidBindingMigrationClassification"
+        outcome:
+          $ref: "#/components/schemas/AndroidBindingMigrationOutcome"
+        binding_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+    AndroidBindingMigrationCommitSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - total_records
+        - migrated_records
+        - identical_records
+        - skipped_records
+        - created_products
+        - created_tags
+        - created_bindings
+      properties:
+        total_records:
+          type: integer
+          minimum: 1
+          maximum: 2000
+        migrated_records:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        identical_records:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        skipped_records:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        created_products:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        created_tags:
+          type: integer
+          minimum: 0
+          maximum: 2000
+        created_bindings:
+          type: integer
+          minimum: 0
+          maximum: 2000
+    AndroidBindingMigrationCommit:
+      type: object
+      additionalProperties: false
+      required: [committed_at, summary, records, bindings]
+      properties:
+        committed_at:
+          $ref: "#/components/schemas/Timestamp"
+        summary:
+          $ref: "#/components/schemas/AndroidBindingMigrationCommitSummary"
+        records:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          items:
+            $ref: "#/components/schemas/AndroidBindingMigrationCommitRecord"
+        bindings:
+          type: array
+          maxItems: 2000
+          items:
+            $ref: "#/components/schemas/Binding"
+    LightAction:
+      type: string
+      enum: [LIGHT_ON, LIGHT_OFF]
+    LightColor:
+      type: string
+      enum: [RED, GREEN, BLUE, CYAN, PINK]
+    CommandStatus:
+      type: string
+      enum: [ACCEPTED, PUBLISHED, CONFIRMED, PARTIALLY_CONFIRMED, UNCONFIRMED, FAILED, SUPERSEDED]
+    CommandItemStatus:
+      type: string
+      enum: [PENDING, PUBLISHED, CONFIRMED, UNCONFIRMED, FAILED, SUPERSEDED]
+    LightCommandCreate:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action:
+          $ref: "#/components/schemas/LightAction"
+        product_code:
+          $ref: "#/components/schemas/ProductCode"
+        tag_ids:
+          type: array
+          minItems: 1
+          maxItems: 2000
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/TagId"
+        color:
+          $ref: "#/components/schemas/LightColor"
+      oneOf:
+        - required: [product_code]
+          not:
+            required: [tag_ids]
+        - required: [tag_ids]
+          not:
+            required: [product_code]
+      allOf:
+        - if:
+            properties:
+              action:
+                const: LIGHT_ON
+            required: [action]
+          then:
+            required: [color]
+        - if:
+            properties:
+              action:
+                const: LIGHT_OFF
+            required: [action]
+          then:
+            not:
+              required: [color]
+    CommandItem:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - tag_id
+        - station_id
+        - status
+        - publish_attempts
+        - published_at
+        - confirmed_at
+        - last_result_type
+        - correlation
+        - failure_code
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        tag_id:
+          $ref: "#/components/schemas/TagId"
+        station_id:
+          $ref: "#/components/schemas/StationId"
+        status:
+          $ref: "#/components/schemas/CommandItemStatus"
+        publish_attempts:
+          type: integer
+          minimum: 0
+          maximum: 2
+        published_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        confirmed_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        last_result_type:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 255
+        correlation:
+          type: string
+          enum: [NONE, HEURISTIC_STATION_TAG_TIME, HEURISTIC_STATE_MATCH]
+          description: eStation acknowledgements contain no HighTac command ID.
+        failure_code:
+          type: [string, "null"]
+          maxLength: 64
+    LightCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - action
+        - product_id
+        - product_code
+        - requested_color
+        - status
+        - target_count
+        - confirmed_count
+        - unconfirmed_count
+        - failed_count
+        - created_at
+        - published_at
+        - completed_at
+        - items
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        action:
+          $ref: "#/components/schemas/LightAction"
+        product_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        product_code:
+          oneOf:
+            - $ref: "#/components/schemas/ProductCode"
+            - type: "null"
+        requested_color:
+          oneOf:
+            - $ref: "#/components/schemas/LightColor"
+            - type: "null"
+        status:
+          $ref: "#/components/schemas/CommandStatus"
+        target_count:
+          type: integer
+          minimum: 0
+        confirmed_count:
+          type: integer
+          minimum: 0
+        unconfirmed_count:
+          type: integer
+          minimum: 0
+        failed_count:
+          type: integer
+          minimum: 0
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        published_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        completed_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        items:
+          type: array
+          maxItems: 2000
+          items:
+            $ref: "#/components/schemas/CommandItem"
+    StationAllOffRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        confirmation:
+          type: string
+          const: ALL OFF
+    EnrollmentStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED, EXPIRED]
+    DeviceEnrollmentCreate:
+      type: object
+      additionalProperties: false
+      required: [fingerprint_hash, installation_key_hash, manufacturer, model, app_version]
+      properties:
+        fingerprint_hash:
+          $ref: "#/components/schemas/Sha256"
+        installation_key_hash:
+          $ref: "#/components/schemas/Sha256"
+          description: SHA-256 of the random per-install key; the key itself remains in Android Keystore.
+        manufacturer:
+          type: string
+          minLength: 1
+          maxLength: 128
+        model:
+          type: string
+          minLength: 1
+          maxLength: 128
+        app_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+    DeviceEnrollmentCreated:
+      type: object
+      additionalProperties: false
+      required: [id, status, poll_secret, expires_at, poll_after_seconds]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        status:
+          type: string
+          const: PENDING
+        poll_secret:
+          type: string
+          minLength: 32
+          maxLength: 256
+          writeOnly: true
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+        poll_after_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 5
+    DeviceEnrollmentStatus:
+      type: object
+      additionalProperties: false
+      required: [id, status, display_name, device_id, device_token, expires_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        status:
+          $ref: "#/components/schemas/EnrollmentStatus"
+        display_name:
+          type: [string, "null"]
+          maxLength: 128
+        device_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        device_token:
+          type: [string, "null"]
+          minLength: 32
+          maxLength: 512
+          writeOnly: true
+          description: Returned once after approval; the server persists only a token hash.
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+    DeviceStatus:
+      type: string
+      enum: [PENDING, APPROVED, REVOKED]
+    AndroidDevice:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - display_name
+        - manufacturer
+        - model
+        - app_version
+        - status
+        - online
+        - first_seen_at
+        - last_seen_at
+        - approved_at
+        - revoked_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        display_name:
+          type: [string, "null"]
+          maxLength: 128
+        manufacturer:
+          type: string
+          minLength: 1
+          maxLength: 128
+        model:
+          type: string
+          minLength: 1
+          maxLength: 128
+        app_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+        status:
+          $ref: "#/components/schemas/DeviceStatus"
+        online:
+          type: boolean
+        first_seen_at:
+          $ref: "#/components/schemas/Timestamp"
+        last_seen_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        approved_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        revoked_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+    AndroidDevicePage:
+      type: object
+      additionalProperties: false
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AndroidDevice"
+        pagination:
+          $ref: "#/components/schemas/PaginationMeta"
+    DeviceRename:
+      type: object
+      additionalProperties: false
+      required: [display_name]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+    OperationLog:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - event_type
+        - site_id
+        - station_id
+        - tag_id
+        - product_id
+        - command_id
+        - actor_type
+        - actor_id
+        - actor_display_name
+        - request_summary
+        - result_summary
+        - client_ip
+        - device_model
+        - failure_code
+        - occurred_at
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        event_type:
+          type: string
+          pattern: ^[a-z][a-z0-9_.]{1,127}$
+        site_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        station_id:
+          oneOf:
+            - $ref: "#/components/schemas/StationId"
+            - type: "null"
+        tag_id:
+          oneOf:
+            - $ref: "#/components/schemas/TagId"
+            - type: "null"
+        product_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        command_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        actor_type:
+          $ref: "#/components/schemas/ActorType"
+        actor_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        actor_display_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        request_summary:
+          type: string
+          maxLength: 2048
+        result_summary:
+          type: string
+          maxLength: 2048
+        client_ip:
+          type: [string, "null"]
+          maxLength: 64
+        device_model:
+          type: [string, "null"]
+          maxLength: 128
+        failure_code:
+          type: [string, "null"]
+          maxLength: 64
+        occurred_at:
+          $ref: "#/components/schemas/Timestamp"
+    OperationLogPage:
+      type: object
+      additionalProperties: false
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperationLog"
+        pagination:
+          $ref: "#/components/schemas/PaginationMeta"
+    SiteSettings:
+      type: object
+      additionalProperties: false
+      required: [id, name, address, notes, low_battery_threshold, command_timeout_seconds, updated_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        address:
+          type: [string, "null"]
+          maxLength: 512
+        notes:
+          type: [string, "null"]
+          maxLength: 2000
+        low_battery_threshold:
+          type: integer
+          enum: [0, 10, 30, 60, 80, 90, 100]
+          default: 30
+        command_timeout_seconds:
+          type: integer
+          const: 10
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+    SiteSettingsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        address:
+          type: [string, "null"]
+          maxLength: 512
+        notes:
+          type: [string, "null"]
+          maxLength: 2000
+        low_battery_threshold:
+          type: integer
+          enum: [0, 10, 30, 60, 80, 90, 100]
+    NetworkSettings:
+      type: object
+      additionalProperties: false
+      required: [api_bind_address, api_port, mqtt_host, mqtt_port, mqtt_tls_enabled, restart_required, updated_at]
+      properties:
+        api_bind_address:
+          type: string
+          minLength: 1
+          maxLength: 255
+        api_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        mqtt_host:
+          type: string
+          minLength: 1
+          maxLength: 255
+        mqtt_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        mqtt_tls_enabled:
+          type: boolean
+        restart_required:
+          type: boolean
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+    NetworkSettingsPatch:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        api_bind_address:
+          type: string
+          minLength: 1
+          maxLength: 255
+        api_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        mqtt_host:
+          type: string
+          minLength: 1
+          maxLength: 255
+        mqtt_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        mqtt_tls_enabled:
+          type: boolean
+    BackupStatus:
+      type: string
+      enum: [RUNNING, SUCCEEDED, FAILED, DELETED]
+    Backup:
+      type: object
+      additionalProperties: false
+      required: [id, filename, reason, status, size_bytes, sha256, schema_version, created_at, completed_at, error_code]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Basename only; no arbitrary filesystem path is exposed.
+        reason:
+          type: string
+          enum: [SCHEDULED, MANUAL, PRE_RESTORE]
+        status:
+          $ref: "#/components/schemas/BackupStatus"
+        size_bytes:
+          type: [integer, "null"]
+          minimum: 0
+        sha256:
+          oneOf:
+            - $ref: "#/components/schemas/Sha256"
+            - type: "null"
+        schema_version:
+          type: [string, "null"]
+          maxLength: 64
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        completed_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        error_code:
+          type: [string, "null"]
+          maxLength: 64
+    BackupPage:
+      type: object
+      additionalProperties: false
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Backup"
+        pagination:
+          $ref: "#/components/schemas/PaginationMeta"
+    RestoreRequest:
+      type: object
+      additionalProperties: false
+      required: [confirmation, expected_sha256]
+      properties:
+        confirmation:
+          type: string
+          const: RESTORE BACKUP
+        expected_sha256:
+          $ref: "#/components/schemas/Sha256"
+    RestoreOperation:
+      type: object
+      additionalProperties: false
+      required: [id, backup_id, status, pre_restore_backup_id, requested_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        backup_id:
+          $ref: "#/components/schemas/Uuid"
+        status:
+          type: string
+          enum: [ACCEPTED, VALIDATING, BACKING_UP, RESTORING, RESTARTING, FAILED]
+        pre_restore_backup_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        requested_at:
+          $ref: "#/components/schemas/Timestamp"

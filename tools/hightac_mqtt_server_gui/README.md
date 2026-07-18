@@ -33,9 +33,36 @@
 - 当前现场 Wi-Fi：`Durova-5G`
 - 当前现场 Broker 地址：`192.168.1.105`
 - 端口：`1884`
-- 用户名：`hightac_mqtt`
-- 密码：`hightac-light`
+- 用户名和密码：每次启动程序时安全随机生成；源码、文档和 Git 不提供默认凭据
 - TLS/SSL：关闭
+
+生成的凭据只显示在配置区中，供复制到 App 和基站；运行日志不记录用户名、密码或 MQTT 消息正文。需要轮换时，关闭并重新启动程序即可生成新凭据。
+
+## 构建
+
+发布版本：`1.1.0`
+
+已验证构建环境：CPython `3.12.13`（64 位）、PyInstaller `6.21.0`、Tcl/Tk `8.6.12`。在本目录使用 PowerShell 构建：
+
+```powershell
+$basePython = 'C:\Users\ooo\AppData\Roaming\uv\python\cpython-3.12.13-windows-x86_64-none\python.exe'
+& $basePython -m venv .venv-build
+$python = '.\.venv-build\Scripts\python.exe'
+& $python -m pip install --disable-pip-version-check PyInstaller==6.21.0
+$env:PYTHONHASHSEED = '0'
+$env:SOURCE_DATE_EPOCH = '1784246400'
+& $python -m PyInstaller --clean --noconfirm HighTacMqttServerSetup.spec
+```
+
+运行测试和无界面冒烟检查：
+
+```powershell
+& $python -m unittest discover -s tests -v
+$process = Start-Process -FilePath '.\dist\HighTacMqttServerSetup.exe' -ArgumentList '--smoke-test' -Wait -PassThru
+$process.ExitCode
+```
+
+发布文件 SHA-256：`CF78F8E8ADF4008B1AC0D05A292296068BF0F50870A97875CF80A68173844FAF`（相同环境连续两次干净构建一致）。
 
 ## 注意
 

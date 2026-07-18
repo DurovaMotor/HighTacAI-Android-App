@@ -1,0 +1,18 @@
+# Rendered to C:/ProgramData/HighTac/Platform/mqtt/mosquitto.conf.
+# HighTac production deployments use the official Eclipse Mosquitto broker only.
+listener __MQTT_PORT__ 0.0.0.0
+protocol mqtt
+allow_anonymous false
+
+password_file __DATA_ROOT__/mqtt/passwordfile
+acl_file __DATA_ROOT__/mqtt/aclfile
+
+persistence true
+persistence_location __DATA_ROOT__/mqtt/data/
+autosave_interval 60
+
+log_dest file __DATA_ROOT__/logs/mosquitto.log
+log_type error
+log_type warning
+log_type notice
+connection_messages true

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<service>
+  <id>HighTacMqttBroker</id>
+  <name>HighTac MQTT Broker</name>
+  <description>Official Eclipse Mosquitto broker for the HighTac LAN platform.</description>
+  <executable>%BASE%\..\mosquitto\mosquitto.exe</executable>
+  <arguments>-c "%ProgramData%\HighTac\Platform\mqtt\mosquitto.conf"</arguments>
+  <workingdirectory>%BASE%\..\mosquitto</workingdirectory>
+  <startmode>Automatic</startmode>
+  <depend>Tcpip</depend>
+  <stoptimeout>15 sec</stoptimeout>
+  <onfailure action="restart" delay="5 sec" />
+  <onfailure action="restart" delay="15 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <serviceaccount>
+    <username>LocalSystem</username>
+  </serviceaccount>
+  <logpath>%ProgramData%\HighTac\Platform\logs</logpath>
+  <log mode="roll-by-size-time">
+    <sizeThreshold>20480</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <zipOlderThanNumDays>7</zipOlderThanNumDays>
+    <zipDateFormat>yyyyMMdd</zipDateFormat>
+  </log>
+</service>

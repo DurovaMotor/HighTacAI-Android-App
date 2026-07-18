@@ -9,11 +9,33 @@ import org.junit.Test
 
 class TaskDataJsonTest {
     @Test
-    fun lightCommandDefaultsToFiveSeconds() {
+    fun lightCommandUsesFixedAppDefaults() {
         val settings = LightCommandSettings()
 
         assertEquals(5, settings.durationSeconds)
+        assertTrue(settings.beep)
+        assertTrue(settings.flashing)
         assertEquals(1, settings.clipTimeUnits())
+
+        val json = TaskData.singleLightOn(TAG_ID, settings).toJson()
+        assertEquals(1, json.getInt("Time"))
+        val item = json.getJSONArray("Items").getJSONObject(0)
+        assertTrue(item.getBoolean("Beep"))
+        assertTrue(item.getBoolean("Flashing"))
+    }
+
+    @Test
+    fun lightColorPresetsStartWithRedAndEndWithPink() {
+        assertEquals(
+            listOf(
+                LightColor.Red,
+                LightColor.Green,
+                LightColor.Blue,
+                LightColor.Cyan,
+                LightColor.Pink
+            ),
+            LightColor.presets
+        )
     }
 
     @Test

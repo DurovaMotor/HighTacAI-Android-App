@@ -1,0 +1,11 @@
+# Protected operator configuration. Delete it after recording the station secret.
+app_server_url=http://__LAN_IPV4__:__WEB_PORT__
+admin_url=http://__LAN_IPV4__:__WEB_PORT__
+initial_admin_username=__BOOTSTRAP_ADMIN_USERNAME__
+initial_admin_password=__BOOTSTRAP_ADMIN_PASSWORD__
+admin_must_change_password=__BOOTSTRAP_ADMIN_MUST_CHANGE_PASSWORD__
+
+station_username=__MQTT_STATION_USERNAME__
+station_password=__MQTT_STATION_PASSWORD__
+station_id=__STATION_ID__
+broker=__LAN_IPV4__:__MQTT_PORT__

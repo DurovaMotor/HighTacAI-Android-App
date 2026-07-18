@@ -28,15 +28,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.ImageLoader
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.example.deepchatdemo.light.domain.LightBinding
+import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
 import com.example.deepchatdemo.price.PriceLookupResult
 
 @Composable
 internal fun PriceResultCard(
     item: PriceLookupResult,
+    imageUrlResolver: PlatformImageUrlResolver,
+    imageLoader: ImageLoader,
     modifier: Modifier = Modifier,
     lightBinding: LightBinding? = null,
     onBindLight: () -> Unit = {},
@@ -57,6 +61,8 @@ internal fun PriceResultCard(
             ) {
                 ProductImage(
                     imageUrl = item.imageUrl,
+                    imageUrlResolver = imageUrlResolver,
+                    imageLoader = imageLoader,
                     contentDescription = item.nameCn.ifBlank { "产品图片" },
                     modifier = Modifier.size(84.dp)
                 )
@@ -160,9 +166,12 @@ internal fun PriceResultCard(
 @Composable
 private fun ProductImage(
     imageUrl: String,
+    imageUrlResolver: PlatformImageUrlResolver,
+    imageLoader: ImageLoader,
     contentDescription: String,
     modifier: Modifier = Modifier
 ) {
+    val safeImageUrl = imageUrlResolver.sanitize(imageUrl)
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -170,12 +179,13 @@ private fun ProductImage(
             .border(1.dp, Color.White.copy(alpha = 0.80f), RoundedCornerShape(16.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (imageUrl.isBlank()) {
+        if (safeImageUrl.isBlank()) {
             ProductImagePlaceholder()
         } else {
             SubcomposeAsyncImage(
-                model = imageUrl,
+                model = safeImageUrl,
                 contentDescription = contentDescription,
+                imageLoader = imageLoader,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             ) {

@@ -22,8 +22,8 @@ class StationConfigStore(context: Context) {
             alias = preferences.getString(KEY_ALIAS, "").orEmpty(),
             brokerHost = brokerHost,
             brokerPort = preferences.getInt(KEY_BROKER_PORT, SiteMqttDefaults.BROKER_PORT),
-            username = preferences.getString(KEY_USERNAME, "hightac_mqtt").orEmpty(),
-            password = preferences.getString(KEY_PASSWORD, "hightac-light").orEmpty(),
+            username = "",
+            password = "",
             tlsEnabled = preferences.getBoolean(KEY_TLS, false)
         )
     }
@@ -34,8 +34,8 @@ class StationConfigStore(context: Context) {
             .putString(KEY_ALIAS, config.alias.trim())
             .putString(KEY_BROKER_HOST, config.brokerHost.trim())
             .putInt(KEY_BROKER_PORT, config.brokerPort)
-            .putString(KEY_USERNAME, config.username.trim())
-            .putString(KEY_PASSWORD, config.password)
+            .remove(KEY_USERNAME)
+            .remove(KEY_PASSWORD)
             .putBoolean(KEY_TLS, config.tlsEnabled)
             .apply()
     }

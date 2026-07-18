@@ -2,31 +2,28 @@ package com.example.deepchatdemo.price
 
 import android.os.SystemClock
 import android.util.Log
-import com.example.deepchatdemo.config.ApiConfig
+import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
+import com.example.deepchatdemo.platform.network.PlatformMobileApiRoute
+import com.example.deepchatdemo.platform.network.PlatformMobileApiTransport
+import com.example.deepchatdemo.platform.network.PlatformMobileAuthorizationException
 import java.io.IOException
 import java.text.Normalizer
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
 class JianDaoYunPriceApi(
-    private val client: OkHttpClient = defaultClient,
-    private val cacheStore: PriceLookupCacheStore? = null
+    private val transport: PlatformMobileApiTransport,
+    private val cacheStore: PriceLookupCacheStore? = null,
+    private val imageUrlResolver: PlatformImageUrlResolver? = null
 ) {
     suspend fun search(
         filters: List<PriceFilterCondition>,
         forceRefresh: Boolean = false,
         onProgress: suspend (results: List<PriceLookupResult>, pageCount: Int, fetchedRowCount: Int) -> Unit = { _, _, _ -> }
     ): PriceLookupSearchResult = withContext(Dispatchers.IO) {
-        ensureConfigured()
-
         val startedAt = SystemClock.elapsedRealtime()
         Log.d(TAG, "JianDaoYun query start: filterCount=${filters.size}, forceRefresh=$forceRefresh")
 
@@ -34,10 +31,13 @@ class JianDaoYunPriceApi(
         val widgets = loadWidgets(entry.id)
         val fieldMap = widgets.inferFieldMap()
         val compiledFilters = filters.toCompiledFilters()
+        val cacheEntryId = PriceLookupSeedImporter.cacheEntryId()
 
-        val diskSnapshot = cacheStore?.load(entry.id)
+        val diskSnapshot = cacheStore?.load(cacheEntryId)
         if (!forceRefresh) {
-            cachedSnapshot?.takeIf { it.entryId == entry.id && it.isFresh(MEMORY_CACHE_TTL_MS) }?.let { snapshot ->
+            cachedSnapshot?.takeIf {
+                it.entryId == cacheEntryId && it.isFresh(MEMORY_CACHE_TTL_MS)
+            }?.let { snapshot ->
                 return@withContext snapshot.toSearchResult(
                     compiledFilters = compiledFilters,
                     sourceLabel = "简道云本地缓存 · ${snapshot.entryName.ifBlank { entry.name }}",
@@ -81,7 +81,7 @@ class JianDaoYunPriceApi(
         }
         val results = rowsResult.matchedResults
         val snapshot = PriceLookupCachedSnapshot(
-            entryId = entry.id,
+            entryId = cacheEntryId,
             entryName = entry.name,
             results = rowsResult.results,
             pageCount = rowsResult.pageCount,
@@ -109,28 +109,13 @@ class JianDaoYunPriceApi(
         )
     }
 
-    private fun ensureConfigured() {
-        val missing = buildList {
-            if (ApiConfig.jiandaoYunApiKey.isBlank()) add("JIANDAOYUN_API_KEY")
-            if (ApiConfig.jiandaoYunAppId.isBlank()) add("JIANDAOYUN_APP_ID")
-        }
-        if (missing.isNotEmpty()) {
-            throw JianDaoYunConfigException("缺少简道云配置：${missing.joinToString()}")
-        }
-    }
-
     private fun resolveEntry(): JianDaoYunEntry {
-        ApiConfig.jiandaoYunEntryId.trim().takeIf { it.isNotBlank() }?.let { entryId ->
-            return JianDaoYunEntry(id = entryId, name = "指定表单")
-        }
-
         cachedEntry?.let { return it }
 
         val requestJson = JSONObject()
-            .put("app_id", ApiConfig.jiandaoYunAppId)
             .put("limit", 100)
             .put("skip", 0)
-        val responseJson = postJson("/v5/app/entry/list", requestJson)
+        val responseJson = postJson(PlatformMobileApiRoute.JIANDAOYUN_ENTRY_LIST, requestJson)
         val formsJson = responseJson.optJSONArray("forms") ?: JSONArray()
         val entries = buildList {
             for (index in 0 until formsJson.length()) {
@@ -158,9 +143,8 @@ class JianDaoYunPriceApi(
         cachedWidgets?.takeIf { cachedWidgetEntryId == entryId }?.let { return it }
 
         val requestJson = JSONObject()
-            .put("app_id", ApiConfig.jiandaoYunAppId)
             .put("entry_id", entryId)
-        val responseJson = postJson("/v5/app/entry/widget/list", requestJson)
+        val responseJson = postJson(PlatformMobileApiRoute.JIANDAOYUN_WIDGET_LIST, requestJson)
         val widgetsJson = responseJson.optJSONArray("widgets") ?: JSONArray()
         val widgets = buildList {
             for (index in 0 until widgetsJson.length()) {
@@ -198,7 +182,6 @@ class JianDaoYunPriceApi(
 
         while (true) {
             val requestJson = JSONObject()
-                .put("app_id", ApiConfig.jiandaoYunAppId)
                 .put("entry_id", entryId)
                 .put("limit", PAGE_LIMIT)
 
@@ -209,7 +192,7 @@ class JianDaoYunPriceApi(
                 requestJson.put("fields", JSONArray(requestFields))
             }
 
-            val responseJson = postJson("/v5/app/entry/data/list", requestJson)
+            val responseJson = postJson(PlatformMobileApiRoute.JIANDAOYUN_DATA_LIST, requestJson)
             val data = responseJson.optJSONArray("data")
                 ?: responseJson.optJSONArray("data_list")
                 ?: JSONArray()
@@ -257,11 +240,11 @@ class JianDaoYunPriceApi(
         )
     }
 
-    private fun postJson(path: String, json: JSONObject): JSONObject {
+    private fun postJson(route: PlatformMobileApiRoute, json: JSONObject): JSONObject {
         var lastError: IOException? = null
         for (attempt in 1..MAX_REQUEST_ATTEMPTS) {
             try {
-                return executePostJson(path, json)
+                return executePostJson(route, json)
             } catch (error: IOException) {
                 lastError = error
                 if (!error.isTransientRequestError() || attempt == MAX_REQUEST_ATTEMPTS) {
@@ -271,7 +254,7 @@ class JianDaoYunPriceApi(
                 val delayMs = error.retryAfterDelayMs() ?: retryDelayMs(attempt)
                 Log.w(
                     TAG,
-                    "JianDaoYun request failed; retrying: path=$path, attempt=$attempt, " +
+                    "JianDaoYun request failed; retrying: route=${route.name}, attempt=$attempt, " +
                         "delayMs=$delayMs, type=${error.javaClass.simpleName}"
                 )
                 sleepBeforeRetry(delayMs)
@@ -281,38 +264,33 @@ class JianDaoYunPriceApi(
         throw lastError ?: IOException("简道云请求失败。")
     }
 
-    private fun executePostJson(path: String, json: JSONObject): JSONObject {
-        val request = Request.Builder()
-            .url(endpoint(path))
-            .post(json.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .addHeader("Authorization", "Bearer ${ApiConfig.jiandaoYunApiKey.trim()}")
-            .addHeader("Content-Type", "application/json")
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                val errorJson = runCatching { JSONObject(body) }.getOrNull()
-                val message = errorJson?.optString("msg")
-                    ?.takeIf { it.isNotBlank() }
-                    ?: body.take(160)
-                throw JianDaoYunHttpException(
-                    statusCode = response.code,
-                    apiMessage = message,
-                    retryAfterHeader = response.header("Retry-After")
-                )
-            }
-            return runCatching {
-                JSONObject(body.ifBlank { "{}" })
-            }.getOrElse { error ->
-                throw IOException("简道云接口返回不是有效 JSON。", error)
-            }
+    private fun executePostJson(
+        route: PlatformMobileApiRoute,
+        json: JSONObject
+    ): JSONObject {
+        val response = transport.postJson(route, json.toString())
+        if (!response.isSuccessful) {
+            val errorJson = runCatching { JSONObject(response.body) }.getOrNull()
+            val message = errorJson?.optString("msg")
+                ?.takeIf { it.isNotBlank() }
+                ?: response.body.take(160)
+            throw JianDaoYunHttpException(
+                statusCode = response.statusCode,
+                apiMessage = message,
+                retryAfterHeader = response.retryAfterHeader
+            )
+        }
+        return runCatching {
+            JSONObject(response.body.ifBlank { "{}" })
+        }.getOrElse { error ->
+            throw IOException("简道云接口返回不是有效 JSON。", error)
         }
     }
 
     private fun IOException.isTransientRequestError(): Boolean {
         return when (this) {
             is JianDaoYunHttpException -> isTransient
+            is PlatformMobileAuthorizationException -> false
             else -> true
         }
     }
@@ -340,16 +318,6 @@ class JianDaoYunPriceApi(
             Thread.currentThread().interrupt()
             throw IOException("简道云请求重试被中断。", error)
         }
-    }
-
-    private fun endpoint(path: String): String {
-        val base = ApiConfig.JIANDAOYUN_BASE_URL.trim().trimEnd('/')
-        val apiBase = if (base.endsWith("/api", ignoreCase = true)) {
-            base
-        } else {
-            "$base/api"
-        }
-        return "$apiBase$path"
     }
 
     private fun List<JianDaoYunWidget>.inferFieldMap(): JianDaoYunFieldMap {
@@ -598,7 +566,9 @@ class JianDaoYunPriceApi(
                 .ifBlank { fieldValues[column.key].orEmpty() }
             column.key to searchValue
         }
-        val imageUrl = data.imageUrlFor(fieldMap.widgetsFor(PriceLookupColumns.IMAGE))
+        val imageUrl = imageUrlResolver
+            ?.sanitize(data.imageUrlFor(fieldMap.widgetsFor(PriceLookupColumns.IMAGE)))
+            .orEmpty()
         val rawDetails = PriceLookupColumns.internalColumns.mapNotNull { column ->
             if (column.key == PriceLookupColumns.IMAGE) return@mapNotNull null
             val value = fieldValues[column.key].orEmpty()
@@ -664,7 +634,9 @@ class JianDaoYunPriceApi(
         cacheKind: String,
         onProgress: suspend (results: List<PriceLookupResult>, pageCount: Int, fetchedRowCount: Int) -> Unit
     ): PriceLookupSearchResult {
-        val cachedResults = results.filter { result -> result.matchesFilters(compiledFilters) }
+        val cachedResults = results
+            .map { result -> result.withSafeImageUrl() }
+            .filter { result -> result.matchesFilters(compiledFilters) }
         onProgress(cachedResults, pageCount, fetchedRowCount)
         Log.d(
             TAG,
@@ -679,6 +651,11 @@ class JianDaoYunPriceApi(
             fromCache = true,
             cacheAgeMs = ageMs()
         )
+    }
+
+    private fun PriceLookupResult.withSafeImageUrl(): PriceLookupResult {
+        val safeImageUrl = imageUrlResolver?.sanitize(imageUrl).orEmpty()
+        return if (safeImageUrl == imageUrl) this else copy(imageUrl = safeImageUrl)
     }
 
     private fun String.matchesCondition(condition: CompiledPriceFilterCondition): Boolean {
@@ -775,7 +752,13 @@ class JianDaoYunPriceApi(
     private fun Any?.toImageUrl(): String {
         return when (this) {
             null, JSONObject.NULL -> ""
-            is String -> trim().takeIf { it.startsWith("http://") || it.startsWith("https://") }.orEmpty()
+            is String -> trim().takeIf { candidate ->
+                candidate.startsWith("http://", ignoreCase = true) ||
+                    candidate.startsWith("https://", ignoreCase = true) ||
+                    candidate.startsWith("/") ||
+                    candidate.startsWith("api/v1/mobile/media/") ||
+                    candidate.startsWith("./api/v1/mobile/media/")
+            }.orEmpty()
             is JSONArray -> {
                 for (index in 0 until length()) {
                     val url = opt(index).toImageUrl()
@@ -867,8 +850,6 @@ class JianDaoYunPriceApi(
         }
     }
 
-    class JianDaoYunConfigException(message: String) : IllegalStateException(message)
-
     class JianDaoYunHttpException(
         val statusCode: Int,
         val apiMessage: String,
@@ -887,7 +868,6 @@ class JianDaoYunPriceApi(
         private const val MEMORY_CACHE_TTL_MS = 10 * 60 * 1000L
         private const val DISK_CACHE_TTL_MS = Long.MAX_VALUE
 
-        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         private val SEPARATOR_REGEX = Regex("[\\s\\-_/\\\\.,;:，。；：、()（）\\[\\]{}]+")
         private val FIELD_NAME_IGNORED_REGEX = Regex("[\\s\\-_/\\\\.,;:，。；：、()（）\\[\\]{}]+")
         private val MODEL_FIELD_EXCLUDE_KEYWORDS = listOf(
@@ -949,12 +929,6 @@ class JianDaoYunPriceApi(
             "情况",
             "字段"
         )
-
-        private val defaultClient = OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(40, TimeUnit.SECONDS)
-            .writeTimeout(20, TimeUnit.SECONDS)
-            .build()
 
         @Volatile
         private var cachedEntry: JianDaoYunEntry? = null
