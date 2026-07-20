@@ -33,18 +33,18 @@ class PriceLookupCacheStore internal constructor(
             text = cacheFile.readText(Charsets.UTF_8),
             expectedEntryId = entryId
         ) ?: return null
-        val sanitizedSnapshot = snapshot.withSafeImageUrls()
-        if (sanitizedSnapshot != snapshot) {
-            runCatching { save(sanitizedSnapshot) }
+        val durableSnapshot = snapshot.withoutImageUrls()
+        if (durableSnapshot != snapshot) {
+            runCatching { save(durableSnapshot) }
         }
-        return sanitizedSnapshot
+        return durableSnapshot
     }
 
     fun loadSnapshotFromJsonText(
         text: String,
         expectedEntryId: String? = null
     ): PriceLookupCachedSnapshot? {
-        return parseSnapshotFromJsonText(text, expectedEntryId)?.withSafeImageUrls()
+        return parseSnapshotFromJsonText(text, expectedEntryId)?.withoutImageUrls()
     }
 
     private fun parseSnapshotFromJsonText(
@@ -70,10 +70,10 @@ class PriceLookupCacheStore internal constructor(
     }
 
     fun save(snapshot: PriceLookupCachedSnapshot) {
-        val sanitizedSnapshot = snapshot.withSafeImageUrls()
+        val durableSnapshot = snapshot.withoutImageUrls()
         cacheFile.parentFile?.mkdirs()
         val tmpFile = File(cacheFile.parentFile, "${cacheFile.name}.tmp")
-        tmpFile.writeText(sanitizedSnapshot.toJson().toString(), Charsets.UTF_8)
+        tmpFile.writeText(durableSnapshot.toJson().toString(), Charsets.UTF_8)
 
         if (cacheFile.exists() && !cacheFile.delete()) {
             tmpFile.delete()
@@ -105,7 +105,6 @@ class PriceLookupCacheStore internal constructor(
     private fun PriceLookupResult.toJson(): JSONObject {
         return JSONObject()
             .put("id", id)
-            .put("image_url", imageUrl)
             .put("code", code)
             .put("name_cn", nameCn)
             .put("name_en", nameEn)
@@ -130,20 +129,13 @@ class PriceLookupCacheStore internal constructor(
             .put("raw_details", rawDetails.toJsonArray())
     }
 
-    private fun PriceLookupCachedSnapshot.withSafeImageUrls(): PriceLookupCachedSnapshot {
+    private fun PriceLookupCachedSnapshot.withoutImageUrls(): PriceLookupCachedSnapshot {
         if (results.none { it.imageUrl.isNotBlank() }) return this
 
-        var changed = false
-        val sanitizedResults = results.map { result ->
-            val safeImageUrl = imageUrlResolver?.sanitize(result.imageUrl).orEmpty()
-            if (safeImageUrl == result.imageUrl) {
-                result
-            } else {
-                changed = true
-                result.copy(imageUrl = safeImageUrl)
-            }
+        val durableResults = results.map { result ->
+            if (result.imageUrl.isBlank()) result else result.copy(imageUrl = "")
         }
-        return if (changed) copy(results = sanitizedResults) else this
+        return copy(results = durableResults)
     }
 
     private fun JSONArray.toLookupResults(): List<PriceLookupResult> {

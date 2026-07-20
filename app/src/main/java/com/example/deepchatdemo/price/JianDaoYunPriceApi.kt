@@ -19,6 +19,20 @@ class JianDaoYunPriceApi(
     private val cacheStore: PriceLookupCacheStore? = null,
     private val imageUrlResolver: PlatformImageUrlResolver? = null
 ) {
+    private val metadataLock = Any()
+
+    @Volatile
+    private var cachedEntry: JianDaoYunEntry? = null
+
+    @Volatile
+    private var cachedWidgetEntryId: String? = null
+
+    @Volatile
+    private var cachedWidgets: List<JianDaoYunWidget>? = null
+
+    @Volatile
+    private var cachedSnapshot: PriceLookupCachedSnapshot? = null
+
     suspend fun search(
         filters: List<PriceFilterCondition>,
         forceRefresh: Boolean = false,
@@ -109,8 +123,77 @@ class JianDaoYunPriceApi(
         )
     }
 
-    private fun resolveEntry(): JianDaoYunEntry {
-        cachedEntry?.let { return it }
+    suspend fun fetchFreshImageUrl(
+        itemId: String,
+        code: String
+    ): String = withContext(Dispatchers.IO) {
+        val expectedCode = code.normalizeCompact()
+        if (expectedCode.isBlank()) return@withContext ""
+
+        val entry = resolveEntry()
+        val fieldMap = loadWidgets(entry.id).inferFieldMap()
+        val codeWidget = fieldMap.widgetFor(PriceLookupColumns.CODE)
+            ?: return@withContext ""
+        val codeField = codeWidget.apiKeys.firstOrNull()
+            ?: return@withContext ""
+        val imageWidgets = fieldMap.widgetsFor(PriceLookupColumns.IMAGE)
+        if (imageWidgets.isEmpty()) return@withContext ""
+
+        val requestFields = (listOf(codeWidget) + imageWidgets)
+            .flatMap { widget -> widget.apiKeys.take(1) }
+            .distinct()
+        val filterCondition = JSONObject()
+            .put("field", codeField)
+            .put("method", "eq")
+            .put("value", JSONArray().put(code.trim()))
+        val requestJson = JSONObject()
+            .put("entry_id", entry.id)
+            .put("limit", IMAGE_LOOKUP_LIMIT)
+            .put("fields", JSONArray(requestFields))
+            .put(
+                "filter",
+                JSONObject()
+                    .put("rel", "and")
+                    .put("cond", JSONArray().put(filterCondition))
+            )
+        val responseJson = postJson(PlatformMobileApiRoute.JIANDAOYUN_DATA_LIST, requestJson)
+        val data = responseJson.optJSONArray("data")
+            ?: responseJson.optJSONArray("data_list")
+            ?: JSONArray()
+        val codeColumn = PriceLookupColumns.columnForKey(PriceLookupColumns.CODE)
+            ?: return@withContext ""
+        val candidates = buildList {
+            for (index in 0 until data.length()) {
+                val record = data.optJSONObject(index) ?: continue
+                val recordId = record.optString("_id")
+                    .ifBlank { record.optString("data_id") }
+                val values = record.optJSONObject("data") ?: record
+                val recordCode = values.textFor(column = codeColumn, widget = codeWidget)
+                if (recordCode.normalizeCompact() != expectedCode) continue
+                add(
+                    ImageLookupCandidate(
+                        id = recordId,
+                        imageUrl = imageUrlResolver
+                            ?.sanitize(values.imageUrlFor(imageWidgets))
+                            .orEmpty()
+                    )
+                )
+            }
+        }
+
+        val expectedId = itemId.trim()
+        val matchingId = candidates.firstOrNull { candidate ->
+            expectedId.isNotBlank() && candidate.id == expectedId
+        }
+        when {
+            matchingId != null -> matchingId.imageUrl
+            data.length() >= IMAGE_LOOKUP_LIMIT -> ""
+            else -> candidates.singleOrNull()?.imageUrl.orEmpty()
+        }
+    }
+
+    private fun resolveEntry(): JianDaoYunEntry = synchronized(metadataLock) {
+        cachedEntry?.let { return@synchronized it }
 
         val requestJson = JSONObject()
             .put("limit", 100)
@@ -136,11 +219,12 @@ class JianDaoYunPriceApi(
             ?: throw IOException("简道云应用下没有可用表单。")
         cachedEntry = selected
         Log.d(TAG, "JianDaoYun auto entry selected: name=${selected.name}, id=${selected.id}")
-        return selected
+        selected
     }
 
-    private fun loadWidgets(entryId: String): List<JianDaoYunWidget> {
-        cachedWidgets?.takeIf { cachedWidgetEntryId == entryId }?.let { return it }
+    private fun loadWidgets(entryId: String): List<JianDaoYunWidget> = synchronized(metadataLock) {
+        cachedWidgets?.takeIf { cachedWidgetEntryId == entryId }
+            ?.let { return@synchronized it }
 
         val requestJson = JSONObject()
             .put("entry_id", entryId)
@@ -162,7 +246,7 @@ class JianDaoYunPriceApi(
         cachedWidgetEntryId = entryId
         cachedWidgets = widgets
         Log.d(TAG, "JianDaoYun widgets loaded: count=${widgets.size}")
-        return widgets
+        widgets
     }
 
     private suspend fun loadRows(
@@ -176,7 +260,9 @@ class JianDaoYunPriceApi(
         var dataId = ""
         var pageCount = 0
         val seenCursors = mutableSetOf<String>()
+        val imageWidgets = fieldMap.widgetsFor(PriceLookupColumns.IMAGE).toSet()
         val requestFields = fieldMap.selectedWidgets
+            .filterNot(imageWidgets::contains)
             .flatMap { widget -> widget.apiKeys.take(1) }
             .distinct()
 
@@ -814,6 +900,11 @@ class JianDaoYunPriceApi(
         val fetchedRowCount: Int
     )
 
+    private data class ImageLookupCandidate(
+        val id: String,
+        val imageUrl: String
+    )
+
     private data class CompiledPriceFilterCondition(
         val columnKey: String,
         val text: String,
@@ -862,6 +953,7 @@ class JianDaoYunPriceApi(
     companion object {
         private const val TAG = "HighTacAI"
         private const val PAGE_LIMIT = 100
+        private const val IMAGE_LOOKUP_LIMIT = 10
         private const val MAX_REQUEST_ATTEMPTS = 3
         private const val MIN_RETRY_DELAY_MS = 600L
         private const val MAX_RETRY_DELAY_MS = 3_000L
@@ -930,16 +1022,5 @@ class JianDaoYunPriceApi(
             "字段"
         )
 
-        @Volatile
-        private var cachedEntry: JianDaoYunEntry? = null
-
-        @Volatile
-        private var cachedWidgetEntryId: String? = null
-
-        @Volatile
-        private var cachedWidgets: List<JianDaoYunWidget>? = null
-
-        @Volatile
-        private var cachedSnapshot: PriceLookupCachedSnapshot? = null
     }
 }

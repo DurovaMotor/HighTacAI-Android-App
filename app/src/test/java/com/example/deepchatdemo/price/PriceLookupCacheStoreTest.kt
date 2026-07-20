@@ -49,10 +49,9 @@ class PriceLookupCacheStoreTest {
             assertEquals(73, loaded.pageCount)
             assertEquals(7230, loaded.fetchedRowCount)
             assertEquals("驱动盘", loaded.results.single().nameCn)
-            assertEquals(
-                "http://192.168.1.105:8088/api/v1/mobile/media/cache-token",
-                loaded.results.single().imageUrl
-            )
+            assertEquals("", loaded.results.single().imageUrl)
+            assertFalse(cacheFile.readText(Charsets.UTF_8).contains("image_url"))
+            assertFalse(cacheFile.readText(Charsets.UTF_8).contains("cache-token"))
             assertEquals("SYMPHONY ST", loaded.results.single().searchValues[PriceLookupColumns.MODELS])
             assertEquals("产品中文名称" to "驱动盘", loaded.results.single().rawDetails.single())
         }
@@ -108,6 +107,39 @@ class PriceLookupCacheStoreTest {
                 cacheFile.readText(Charsets.UTF_8)
                     .contains("files.jiandaoyun.com", ignoreCase = true)
             )
+        }
+    }
+
+    @Test
+    fun loadPurgesLegacyPlatformMediaTokensFromThePersistedCache() {
+        withTempCache { cacheFile ->
+            cacheFile.writeText(
+                """
+                    {
+                      "version": 1,
+                      "entry_id": "entry-a",
+                      "entry_name": "产品信息",
+                      "page_count": 1,
+                      "fetched_row_count": 1,
+                      "created_at_epoch_ms": 123456789,
+                      "results": [
+                        {
+                          "id": "row-1",
+                          "image_url": "http://192.168.1.105:8088/api/v1/mobile/media/expired-token"
+                        }
+                      ]
+                    }
+                """.trimIndent(),
+                Charsets.UTF_8
+            )
+            val store = PriceLookupCacheStore(cacheFile, imageUrlResolver())
+
+            val loaded = requireNotNull(store.load("entry-a"))
+
+            assertEquals("", loaded.results.single().imageUrl)
+            val persisted = cacheFile.readText(Charsets.UTF_8)
+            assertFalse(persisted.contains("image_url"))
+            assertFalse(persisted.contains("expired-token"))
         }
     }
 

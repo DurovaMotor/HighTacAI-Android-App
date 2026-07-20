@@ -304,6 +304,7 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
                             onStartSearch = priceViewModel::startSearch,
                             onRefreshSearch = priceViewModel::refreshSearch,
                             onRetrySearch = priceViewModel::retrySearch,
+                            resolveImageUrl = priceViewModel::resolveImageUrl,
                             lightBindingForCode = lightFindingViewModel::bindingForCode,
                             onBindLight = { item ->
                                 lightFindingViewModel.prefillFromPrice(

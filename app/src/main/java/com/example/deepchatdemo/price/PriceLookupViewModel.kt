@@ -116,6 +116,11 @@ class PriceLookupViewModel(
         startSearch(forceRefresh = true)
     }
 
+    suspend fun resolveImageUrl(
+        item: PriceLookupResult,
+        forceRefresh: Boolean
+    ): String = repository.resolveImageUrl(item, forceRefresh)
+
     private fun startSearch(forceRefresh: Boolean) {
         if (uiState.isSearching) return
         val filters = commitPendingFilterForSearch() ?: return

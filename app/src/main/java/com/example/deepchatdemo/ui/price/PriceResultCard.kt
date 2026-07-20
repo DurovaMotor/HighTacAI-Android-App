@@ -1,5 +1,6 @@
 package com.example.deepchatdemo.ui.price
 
+import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,13 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,12 +43,14 @@ import coil.compose.SubcomposeAsyncImageContent
 import com.example.deepchatdemo.light.domain.LightBinding
 import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
 import com.example.deepchatdemo.price.PriceLookupResult
+import kotlinx.coroutines.CancellationException
 
 @Composable
 internal fun PriceResultCard(
     item: PriceLookupResult,
     imageUrlResolver: PlatformImageUrlResolver,
     imageLoader: ImageLoader,
+    resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
     modifier: Modifier = Modifier,
     lightBinding: LightBinding? = null,
     onBindLight: () -> Unit = {},
@@ -60,9 +70,10 @@ internal fun PriceResultCard(
                 verticalAlignment = Alignment.Top
             ) {
                 ProductImage(
-                    imageUrl = item.imageUrl,
+                    item = item,
                     imageUrlResolver = imageUrlResolver,
                     imageLoader = imageLoader,
+                    resolveImageUrl = resolveImageUrl,
                     contentDescription = item.nameCn.ifBlank { "产品图片" },
                     modifier = Modifier.size(84.dp)
                 )
@@ -165,13 +176,46 @@ internal fun PriceResultCard(
 
 @Composable
 private fun ProductImage(
-    imageUrl: String,
+    item: PriceLookupResult,
     imageUrlResolver: PlatformImageUrlResolver,
     imageLoader: ImageLoader,
+    resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
     contentDescription: String,
     modifier: Modifier = Modifier
 ) {
-    val safeImageUrl = imageUrlResolver.sanitize(imageUrl)
+    var resolvedImageUrl by remember(item.id) { mutableStateOf<String?>(null) }
+    var requestGeneration by remember(item.id) { mutableStateOf(0) }
+    var forceRefreshAttempted by rememberSaveable(item.id) { mutableStateOf(false) }
+
+    suspend fun resolveAndApply(forceRefresh: Boolean) {
+        val resolvedUrl = try {
+            resolveImageUrl(item, forceRefresh)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(
+                PRICE_IMAGE_LOG_TAG,
+                "Price image resolution failed: forceRefresh=$forceRefresh, " +
+                    "type=${error.javaClass.simpleName}"
+            )
+            ""
+        }
+        val safeUrl = imageUrlResolver.sanitize(resolvedUrl)
+        if (resolvedUrl.isNotBlank() && safeUrl.isBlank()) {
+            Log.w(
+                PRICE_IMAGE_LOG_TAG,
+                "Price image resolution was rejected by the platform URL policy: " +
+                    "forceRefresh=$forceRefresh"
+            )
+        }
+        resolvedImageUrl = safeUrl
+        requestGeneration += 1
+    }
+
+    LaunchedEffect(item.id) {
+        resolveAndApply(forceRefresh = false)
+    }
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
@@ -179,25 +223,45 @@ private fun ProductImage(
             .border(1.dp, Color.White.copy(alpha = 0.80f), RoundedCornerShape(16.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (safeImageUrl.isBlank()) {
+        val safeImageUrl = resolvedImageUrl
+        if (safeImageUrl.isNullOrBlank()) {
             ProductImagePlaceholder()
         } else {
-            SubcomposeAsyncImage(
-                model = safeImageUrl,
-                contentDescription = contentDescription,
-                imageLoader = imageLoader,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            ) {
-                if (painter.state is AsyncImagePainter.State.Success) {
-                    SubcomposeAsyncImageContent()
-                } else {
-                    ProductImagePlaceholder()
+            key(requestGeneration) {
+                SubcomposeAsyncImage(
+                    model = safeImageUrl,
+                    contentDescription = contentDescription,
+                    imageLoader = imageLoader,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    when (val state = painter.state) {
+                        is AsyncImagePainter.State.Success -> SubcomposeAsyncImageContent()
+                        is AsyncImagePainter.State.Error -> {
+                            ProductImagePlaceholder()
+                            LaunchedEffect(state) {
+                                val willForceRefresh = !forceRefreshAttempted
+                                Log.w(
+                                    PRICE_IMAGE_LOG_TAG,
+                                    "Price image load failed: " +
+                                        "type=${state.result.throwable.javaClass.simpleName}, " +
+                                        "willForceRefresh=$willForceRefresh"
+                                )
+                                if (willForceRefresh) {
+                                    forceRefreshAttempted = true
+                                    resolveAndApply(forceRefresh = true)
+                                }
+                            }
+                        }
+                        else -> ProductImagePlaceholder()
+                    }
                 }
             }
         }
     }
 }
+
+private const val PRICE_IMAGE_LOG_TAG = "HighTacAI"
 
 @Composable
 private fun ProductImagePlaceholder() {
