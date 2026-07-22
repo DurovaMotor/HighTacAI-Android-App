@@ -24,12 +24,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FlashOn
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.ViewWeek
-import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -43,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -221,95 +226,169 @@ private fun StatusPanel(
     onToggleSettings: () -> Unit,
     onDisconnect: () -> Unit
 ) {
-    LightGlassPanel {
+    var detailsExpanded by rememberSaveable { mutableStateOf(false) }
+    var actionsExpanded by remember { mutableStateOf(false) }
+    val summary = compactLightSystemSummary(uiState)
+
+    LaunchedEffect(uiState.inputMessage) {
+        if (!uiState.inputMessage.isNullOrBlank()) detailsExpanded = true
+    }
+
+    LightGlassPanel(
+        shape = RoundedCornerShape(18.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 9.dp),
+        alpha = 0.52f,
+        elevation = 8.dp
+    ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                StatusPill(
-                    icon = Icons.Rounded.Wifi,
-                    text = uiState.backendStatus.label(),
-                    color = uiState.backendStatus.statusColor()
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(summary.level.color())
                 )
-                Spacer(Modifier.weight(1f))
-                RoundIconButton(
-                    icon = Icons.Rounded.Settings,
-                    contentDescription = "服务器配置",
-                    onClick = onToggleSettings
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusPill(
-                    icon = Icons.Rounded.Link,
-                    text = brokerLabel(uiState),
-                    color = brokerColor(uiState)
-                )
-                StatusPill(
-                    icon = Icons.Rounded.FlashOn,
-                    text = stationLabel(uiState),
-                    color = stationColor(uiState)
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            StatusPill(
-                icon = Icons.Rounded.Sync,
-                text = uiState.eventConnectionState.label(),
-                color = uiState.eventConnectionState.statusColor()
-            )
-            Spacer(Modifier.height(8.dp))
-            StatusPill(
-                icon = Icons.Rounded.History,
-                text = cacheLabel(uiState),
-                color = cacheColor(uiState)
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = uiState.stationId.ifBlank { "HighTac Platform" },
-                color = LightUiColors.Ink,
-                fontSize = 22.sp,
-                lineHeight = 27.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = uiState.serverUrl,
-                color = LightUiColors.Muted,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            uiState.inputMessage?.takeIf(String::isNotBlank)?.let { message ->
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = message,
-                    color = LightUiColors.Blue,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                LightGradientButton(
-                    text = connectButtonLabel(uiState),
-                    icon = Icons.Rounded.Link,
-                    modifier = Modifier.weight(1f),
+                Spacer(Modifier.width(7.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = summary.label,
+                        color = LightUiColors.Ink,
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = compactStationTitle(uiState),
+                        color = LightUiColors.Muted,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                CompactIconButton(
+                    icon = if (uiState.connectionEnabled) Icons.Rounded.Sync else Icons.Rounded.Link,
+                    contentDescription = connectButtonLabel(uiState),
                     enabled = uiState.isConfigured && !uiState.operationInProgress,
+                    tint = LightUiColors.Blue,
                     onClick = onConnect
                 )
-                LightOutlineButton(
-                    text = "断开",
-                    icon = Icons.Rounded.LinkOff,
-                    modifier = Modifier.weight(1f),
-                    contentColor = LightUiColors.Danger,
-                    enabled = uiState.connectionEnabled && !uiState.operationInProgress,
-                    onClick = onDisconnect
+                CompactIconButton(
+                    icon = Icons.Rounded.Settings,
+                    contentDescription = "服务器配置",
+                    tint = LightUiColors.Ink,
+                    onClick = onToggleSettings
                 )
+                if (uiState.connectionEnabled) {
+                    Box {
+                        CompactIconButton(
+                            icon = Icons.Rounded.MoreVert,
+                            contentDescription = "更多连接操作",
+                            tint = LightUiColors.Ink,
+                            onClick = { actionsExpanded = true }
+                        )
+                        DropdownMenu(
+                            expanded = actionsExpanded,
+                            onDismissRequest = { actionsExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "断开连接",
+                                        color = LightUiColors.Danger,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.LinkOff,
+                                        contentDescription = null,
+                                        tint = LightUiColors.Danger
+                                    )
+                                },
+                                enabled = !uiState.operationInProgress,
+                                onClick = {
+                                    actionsExpanded = false
+                                    onDisconnect()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { detailsExpanded = !detailsExpanded }
+                    .padding(top = 3.dp, bottom = 1.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                CompactStatusIndicator("API", uiState.backendStatus.statusColor())
+                CompactStatusIndicator("Broker", brokerColor(uiState))
+                CompactStatusIndicator("基站", stationColor(uiState))
+                CompactStatusIndicator("实时", uiState.eventConnectionState.statusColor())
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = compactCacheLabel(uiState),
+                    color = cacheColor(uiState),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+                Icon(
+                    imageVector = if (detailsExpanded) {
+                        Icons.Rounded.ExpandLess
+                    } else {
+                        Icons.Rounded.ExpandMore
+                    },
+                    contentDescription = if (detailsExpanded) "收起状态详情" else "展开状态详情",
+                    tint = LightUiColors.Muted,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+
+            AnimatedVisibility(visible = detailsExpanded) {
+                Column(modifier = Modifier.padding(top = 9.dp)) {
+                    Text(
+                        text = listOf(
+                            uiState.backendStatus.label(),
+                            brokerLabel(uiState),
+                            stationLabel(uiState),
+                            uiState.eventConnectionState.label()
+                        ).joinToString(" · "),
+                        color = LightUiColors.Ink,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = "${cacheLabel(uiState)} · ${uiState.serverUrl}",
+                        color = LightUiColors.Muted,
+                        fontSize = 11.sp,
+                        lineHeight = 16.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    uiState.inputMessage?.takeIf(String::isNotBlank)?.let { message ->
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            text = message,
+                            color = LightUiColors.Blue,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
         }
     }
@@ -758,33 +837,25 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun StatusPill(
-    icon: ImageVector,
+private fun CompactStatusIndicator(
     text: String,
     color: Color
 ) {
     Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.50f))
-            .border(1.dp, Color.White.copy(alpha = 0.76f), RoundedCornerShape(18.dp))
-            .padding(horizontal = 9.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(8.dp)
+                .size(7.dp)
                 .clip(CircleShape)
                 .background(color)
         )
-        Spacer(Modifier.width(5.dp))
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(3.dp))
         Text(
             text = text,
             color = LightUiColors.Ink,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1
         )
     }
@@ -817,24 +888,23 @@ private fun ColorDot(
 }
 
 @Composable
-private fun RoundIconButton(
+private fun CompactIconButton(
     icon: ImageVector,
     contentDescription: String,
+    tint: Color,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.58f))
-            .border(1.dp, Color.White.copy(alpha = 0.80f), CircleShape)
+        enabled = enabled,
+        modifier = Modifier.size(36.dp)
     ) {
         Icon(
             icon,
             contentDescription = contentDescription,
-            tint = LightUiColors.Ink,
-            modifier = Modifier.size(21.dp)
+            tint = tint.copy(alpha = if (enabled) 1f else 0.34f),
+            modifier = Modifier.size(19.dp)
         )
     }
 }
@@ -968,6 +1038,102 @@ private fun connectButtonLabel(uiState: LightFindingUiState): String {
     return if (uiState.connectionEnabled) "刷新" else "连接"
 }
 
+internal enum class CompactLightSystemLevel {
+    HEALTHY,
+    SYNCING,
+    ATTENTION,
+    ERROR,
+    DISCONNECTED
+}
+
+internal data class CompactLightSystemSummary(
+    val label: String,
+    val level: CompactLightSystemLevel
+)
+
+internal fun compactLightSystemSummary(
+    uiState: LightFindingUiState
+): CompactLightSystemSummary {
+    if (!uiState.connectionEnabled) {
+        return CompactLightSystemSummary(
+            label = "寻物未连接",
+            level = CompactLightSystemLevel.DISCONNECTED
+        )
+    }
+    if (uiState.operationInProgress || uiState.backendStatus == PlatformBackendUiStatus.CHECKING) {
+        return CompactLightSystemSummary(
+            label = "正在更新寻物状态",
+            level = CompactLightSystemLevel.SYNCING
+        )
+    }
+
+    val backendFailed = uiState.backendStatus == PlatformBackendUiStatus.UNAVAILABLE ||
+        uiState.backendStatus == PlatformBackendUiStatus.CONTRACT_INCOMPATIBLE
+    val brokerFailed = uiState.brokerStatus?.let { status ->
+        !uiState.brokerSnapshotStale &&
+            status.serviceState != BrokerServiceState.STARTING &&
+            status.serviceState != BrokerServiceState.STOPPING &&
+            !status.isReady
+    } == true
+    val stationFailed = uiState.selectedStation?.status == StationStatus.OFFLINE
+    val realtimeFailed =
+        uiState.eventConnectionState == PlatformEventConnectionState.AuthenticationRequired
+    if (backendFailed || brokerFailed || stationFailed || realtimeFailed) {
+        return CompactLightSystemSummary(
+            label = "寻物服务异常",
+            level = CompactLightSystemLevel.ERROR
+        )
+    }
+
+    val fullyReady = uiState.backendStatus == PlatformBackendUiStatus.AVAILABLE &&
+        uiState.isBrokerReady &&
+        uiState.selectedStation?.status == StationStatus.ONLINE &&
+        uiState.eventConnectionState is PlatformEventConnectionState.Connected &&
+        uiState.cacheSynchronizedAt != null &&
+        !uiState.cacheStale
+    if (fullyReady) {
+        return CompactLightSystemSummary(
+            label = "寻物系统正常",
+            level = CompactLightSystemLevel.HEALTHY
+        )
+    }
+
+    val stillSyncing = uiState.backendStatus == PlatformBackendUiStatus.UNKNOWN ||
+        uiState.brokerStatus == null ||
+        uiState.cacheSynchronizedAt == null ||
+        uiState.eventConnectionState is PlatformEventConnectionState.Connecting ||
+        uiState.eventConnectionState is PlatformEventConnectionState.ReconnectScheduled
+    return CompactLightSystemSummary(
+        label = if (stillSyncing) "正在同步寻物状态" else "寻物状态需检查",
+        level = if (stillSyncing) {
+            CompactLightSystemLevel.SYNCING
+        } else {
+            CompactLightSystemLevel.ATTENTION
+        }
+    )
+}
+
+private fun CompactLightSystemLevel.color(): Color = when (this) {
+    CompactLightSystemLevel.HEALTHY -> LightUiColors.Green
+    CompactLightSystemLevel.SYNCING,
+    CompactLightSystemLevel.ATTENTION -> LightUiColors.Warning
+    CompactLightSystemLevel.ERROR -> LightUiColors.Danger
+    CompactLightSystemLevel.DISCONNECTED -> LightUiColors.Muted
+}
+
+private fun compactStationTitle(uiState: LightFindingUiState): String {
+    return uiState.selectedStation?.alias
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+        ?: uiState.stationId.ifBlank { "HighTac Platform" }
+}
+
+private fun compactCacheLabel(uiState: LightFindingUiState): String {
+    val synchronizedAt = uiState.cacheSynchronizedAt ?: return "未同步"
+    if (uiState.cacheStale) return "同步过期"
+    return "已同步 ${CACHE_COMPACT_TIME_FORMATTER.format(synchronizedAt)}"
+}
+
 private fun brokerLabel(uiState: LightFindingUiState): String {
     val status = uiState.brokerStatus ?: return "Broker 未知"
     return when {
@@ -1076,6 +1242,8 @@ private fun LegacyBindingMigrationConflict.label(): String {
 }
 
 private val CACHE_TIME_FORMATTER = DateTimeFormatter.ofPattern("MM-dd HH:mm")
+    .withZone(ZoneId.systemDefault())
+private val CACHE_COMPACT_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
     .withZone(ZoneId.systemDefault())
 
 private object LightUiColors {
