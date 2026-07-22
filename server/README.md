@@ -30,31 +30,39 @@ The default broker endpoint is `127.0.0.1:1884`. Broker supervision defaults to
 read-only unmanaged detection; choose `subprocess` or `windows_service` explicitly
 before enabling start/stop controls.
 
-## Android device enrollment
+## Android zero-registration access
 
-Valid Android enrollment requests are authorized automatically. `POST
-/api/v1/device-enrollments` returns `APPROVED` together with a one-time device
-bearer token; no administrator approval is required. The installation-scoped
-poll secret is still required by `GET /api/v1/device-enrollments/{id}`, which
-also upgrades `PENDING` records created by older releases.
+Android application operations on the trusted LAN do not require device
+enrollment, administrator approval, or a bearer token. Tokenless reads, binding
+and tag writes, light commands, Android binding migration, mobile proxies, and
+the realtime event stream use an anonymous Android actor. Apps send a stable,
+random `X-Android-Installation-Id` UUID so different phones receive separate
+audit and idempotency attribution without registration. The header is non-secret
+and is never treated as authentication; omitting it uses the fixed fallback actor
+`Anonymous Android app` (`00000000-0000-0000-0000-000000000000`).
 
-Device tokens are one-time response credentials. An idempotent replay reports
-the current `APPROVED`, `REJECTED`, or `EXPIRED` state but does not disclose an
-already-issued token. After a lost token response or an expired challenge, the
-App must discard that idempotency key and submit a fresh challenge. Creating a
-fresh enrollment does not invalidate bearer tokens held by other active device
-records.
+Valid device tokens issued by older releases remain accepted for per-device
+attribution, but are optional. Invalid, expired, or revoked legacy bearer tokens
+fall back to the anonymous Android actor. Enrollment endpoints and stored device
+records remain only for backward compatibility; normal App startup must not
+depend on them.
 
-Revocation remains a security boundary: a revoked enrollment secret cannot
-restore its device or token. A fresh enrollment challenge creates a separate,
-automatically authorized device record, while the old token stays invalid.
-Automatic enrollment grants Android application permissions only and does not
-grant administrator session or Web console write privileges.
+Administrator-only endpoints still require an administrator session. Browser
+writes presenting an administrator cookie must also pass CSRF and initial
+password-change checks, and cannot fall through to anonymous Android access.
+Anonymous Android access never grants administrator sessions, broker controls,
+configuration changes, product administration, backups, or operation-log
+access.
+
+Zero-registration and mobile-proxy routes are intended only for the trusted
+site LAN or an authenticated VPN. Do not expose the API port directly to the
+public Internet. Network firewalls and VPN access control are the security
+boundary for these tokenless Android capabilities.
 
 ## Mobile third-party proxies
 
-Automatically enrolled Android devices call third-party services through the platform with
-their HighTac device bearer token. Configure the upstream integrations only in
+Android devices call third-party services through the platform without a device
+token. Configure the upstream integrations only in
 the protected runtime environment:
 
 - `HIGHTAC_OPENAI_API_KEY`, `HIGHTAC_OPENAI_BASE_URL`, and

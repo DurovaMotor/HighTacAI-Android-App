@@ -11,8 +11,6 @@ const mocks = vi.hoisted(() => ({
   updateSite: vi.fn(),
   updateNetwork: vi.fn(),
   changePassword: vi.fn(),
-  listDevices: vi.fn(),
-  renameDevice: vi.fn(),
   useAuth: vi.fn(),
 }));
 
@@ -25,7 +23,6 @@ vi.mock('../api/endpoints', () => ({
       updateNetwork: mocks.updateNetwork,
     },
     auth: { changePassword: mocks.changePassword },
-    devices: { list: mocks.listDevices, rename: mocks.renameDevice },
   },
 }));
 
@@ -87,23 +84,6 @@ describe('SettingsPage site and network settings', () => {
     mocks.network.mockResolvedValue(networkSettings);
     mocks.updateSite.mockResolvedValue(siteSettings);
     mocks.changePassword.mockResolvedValue(undefined);
-    mocks.listDevices.mockResolvedValue({
-      items: [{
-        id: 'd5e6f7a8-2345-4bcd-9efa-2345678901bc',
-        display_name: null,
-        manufacturer: 'Samsung',
-        model: 'SM-S9210',
-        app_version: '2.0.0',
-        status: 'PENDING',
-        online: true,
-        first_seen_at: '2026-07-17T00:00:00Z',
-        last_seen_at: '2026-07-17T00:01:00Z',
-        approved_at: null,
-        revoked_at: null,
-      }],
-      pagination: { page: 1, page_size: 20, total_items: 1, total_pages: 1 },
-    });
-    mocks.renameDevice.mockResolvedValue(undefined);
     mocks.useAuth.mockReturnValue({
       user: {
         id: 'b9c79a62-3b52-49e6-88d8-4d2ed4577ed2',
@@ -155,19 +135,6 @@ describe('SettingsPage site and network settings', () => {
       name: 'HighTac 新站点',
       low_battery_threshold: 30,
     }));
-    await unmountAndFlush(view);
-  });
-
-  it('shows automatic device registration without approval or revoke controls', async () => {
-    const view = renderSettingsPage('/settings/devices');
-
-    expect(await screen.findByText(/安装后自动注册并获得完整功能权限/)).toBeInTheDocument();
-    expect(await screen.findByText('注册中')).toBeInTheDocument();
-    expect(screen.queryByText('全部审批状态')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /批准设备/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /撤销设备/ })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /重命名设备/ })).toBeInTheDocument();
-    expect(mocks.listDevices).toHaveBeenCalledWith(expect.not.objectContaining({ status: expect.anything() }));
     await unmountAndFlush(view);
   });
 

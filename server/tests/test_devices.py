@@ -232,8 +232,12 @@ def test_revoked_enrollment_stays_rejected_but_fresh_enrollment_is_authorized(
         json={"confirmation": "REVOKE DEVICE"},
     )
     assert revoked.status_code == 200
+    harness.client.cookies.delete(harness.settings.session_cookie_name)
     assert harness.client.get(
         "/api/v1/products", headers=old_bearer
+    ).status_code == 200
+    assert harness.client.get(
+        "/api/v1/android-devices", headers=old_bearer
     ).status_code == 401
 
     # Possession of a revoked enrollment secret cannot silently restore the
@@ -266,7 +270,7 @@ def test_revoked_enrollment_stays_rejected_but_fresh_enrollment_is_authorized(
     ).status_code == 200
     assert harness.client.get(
         "/api/v1/products", headers=old_bearer
-    ).status_code == 401
+    ).status_code == 200
 
 
 def test_enrollment_rejects_raw_android_identity(harness) -> None:

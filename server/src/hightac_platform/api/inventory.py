@@ -258,7 +258,7 @@ def patch_station(
 def low_battery_tags(
     request: Request,
     session: SessionDependency,
-    _actor: ActorDependency,
+    _actor: AdminDependency,
     pagination: PaginationDependency,
     station_id: str | None = None,
 ) -> dict[str, object]:
@@ -293,7 +293,7 @@ def low_battery_tags(
 def abnormal_tags(
     request: Request,
     session: SessionDependency,
-    _actor: ActorDependency,
+    _actor: AdminDependency,
     pagination: PaginationDependency,
     station_id: str | None = None,
 ) -> dict[str, object]:

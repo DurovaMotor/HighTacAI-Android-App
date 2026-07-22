@@ -188,7 +188,7 @@ class RemotePlatformRepositoryTest {
     }
 
     @Test
-    fun storedTokenDoesNotOpenWritesBeforeAuthenticatedVerification() = runBlocking {
+    fun legacyTokenDoesNotAffectWritesBeforeBackendVerification() = runBlocking {
         var apiCalls = 0
         val api = apiProxy { methodName ->
             apiCalls += 1
@@ -207,7 +207,7 @@ class RemotePlatformRepositoryTest {
             repository.bind(validBindingRequest())
         }
 
-        assertEquals(PlatformWriteClosedReason.DEVICE_NOT_APPROVED, error.reason)
+        assertEquals(PlatformWriteClosedReason.API_NOT_VERIFIED, error.reason)
         assertFalse(repository.accessState.value.canWrite)
         assertEquals(0, apiCalls)
         scope.cancel()

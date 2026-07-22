@@ -1421,7 +1421,7 @@ private fun ApiConnectedPill(hasPlatformAccess: Boolean) {
                 text = if (hasPlatformAccess) {
                     stringResource(R.string.hightac_connected)
                 } else {
-                    stringResource(R.string.hightac_approval_required)
+                    stringResource(R.string.hightac_connecting)
                 },
                 color = LiquidColors.Ink,
                 fontSize = 16.sp,

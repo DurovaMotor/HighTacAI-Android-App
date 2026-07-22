@@ -150,7 +150,7 @@ def health_ready(
 def dashboard_summary(
     request: Request,
     session: SessionDependency,
-    _actor: ActorDependency,
+    _actor: AdminDependency,
 ) -> dict[str, object]:
     runtime = get_runtime(request)
     runtime.inventory_service.refresh_station_statuses(session)

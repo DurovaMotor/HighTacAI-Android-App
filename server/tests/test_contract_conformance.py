@@ -87,7 +87,7 @@ def test_core_read_responses_validate_against_contract(harness) -> None:
 
 
 def test_contract_error_envelope_is_strict(harness) -> None:
-    response = harness.client.get("/api/v1/products")
+    response = harness.client.get("/api/v1/android-devices")
     assert response.status_code == 401
     _validate("ErrorEnvelope", response.json())
     assert response.json()["error"]["details"] == []

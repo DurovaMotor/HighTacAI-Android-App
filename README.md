@@ -171,10 +171,10 @@ npm run dev -- --host 0.0.0.0
 ```
 
 The first administrator is `Adam`; the initial password must be changed after
-the first login. Android does not use an account: the App enrolls a protected
-device identity and receives a one-time device token automatically, without an
-administrator approval step. Revoked tokens remain invalid; a fresh enrollment
-creates a separately revocable installation.
+the first login. Android does not use an account or device registration: App
+operations use the trusted-LAN anonymous Android actor without an approval step
+or bearer token. Administrator-only APIs and browser writes remain protected by
+the administrator session and CSRF checks.
 
 When a local VPN sets `HTTP_PROXY`/`HTTPS_PROXY`, bypass it for LAN diagnostics:
 
@@ -233,5 +233,5 @@ Windows Sandbox install/upgrade/uninstall rehearsal.
 
 Architecture and implementation decisions are documented in
 `docs/hightac-web-platform-architecture-plan.md` and
-`docs/hightac-web-ui-design-system.md`. Day-to-day startup, enrollment, backup,
+`docs/hightac-web-ui-design-system.md`. Day-to-day startup, zero-registration Android access, backup,
 and troubleshooting steps are in `docs/hightac-platform-operations.md`.

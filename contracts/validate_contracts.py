@@ -130,14 +130,31 @@ PUBLIC_OPERATION_IDS = {
     "getMobileMedia",
 }
 
-ANDROID_ONLY_OPERATION_IDS = {
+ZERO_REGISTRATION_ANDROID_OPERATION_IDS = {
+    "getBrokerStatus",
+    "listStations",
+    "getStation",
+    "listTags",
+    "getTag",
+    "registerTag",
+    "listProducts",
+    "getProduct",
+    "listBindings",
+    "createBinding",
+    "removeBinding",
+    "rebindTag",
     "previewAndroidBindingMigration",
     "commitAndroidBindingMigration",
+    "createLightCommand",
+    "getLightCommand",
+    "clearStation",
     "proxyMobileOpenAiResponses",
     "proxyMobileJianDaoYunEntryList",
     "proxyMobileJianDaoYunWidgetList",
     "proxyMobileJianDaoYunDataList",
+    "connectEventStream",
 }
+PUBLIC_OPERATION_IDS |= ZERO_REGISTRATION_ANDROID_OPERATION_IDS
 
 NO_HEADER_AUTH_OPERATION_IDS = {"getMobileMedia"}
 
@@ -189,10 +206,15 @@ def validate_openapi() -> int:
         if operation_id not in PUBLIC_OPERATION_IDS:
             require(operation.get("security"), f"{operation_id} must declare authentication")
 
-        if operation_id in ANDROID_ONLY_OPERATION_IDS:
+        if operation_id in ZERO_REGISTRATION_ANDROID_OPERATION_IDS:
             require(
-                operation.get("security") == [{"AndroidBearer": []}],
-                f"{operation_id} must require only AndroidBearer",
+                operation.get("security") == [],
+                f"{operation_id} must allow zero-registration Android access",
+            )
+            refs = parameter_refs(spec["paths"][route], operation)
+            require(
+                "#/components/parameters/AndroidInstallationId" in refs,
+                f"{operation_id} must document optional Android installation attribution",
             )
 
         if operation_id in NO_HEADER_AUTH_OPERATION_IDS:
@@ -225,8 +247,8 @@ def validate_openapi() -> int:
     require(len(operation_ids) == 63, "OpenAPI must define exactly 63 operations")
     require(set(IDEMPOTENT_OPERATION_IDS).issubset(operation_ids), "unknown idempotent operation")
     require(
-        ANDROID_ONLY_OPERATION_IDS.issubset(operation_ids),
-        "unknown Android-only operation",
+        ZERO_REGISTRATION_ANDROID_OPERATION_IDS.issubset(operation_ids),
+        "unknown zero-registration Android operation",
     )
     return len(operation_ids)
 

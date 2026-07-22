@@ -1,7 +1,6 @@
 import { apiRequest, parsePage, queryString, setCsrfToken } from './client';
 import type {
   AdminUser,
-  AndroidDevice,
   BackupRecord,
   Binding,
   BrokerConfigSummary,
@@ -129,11 +128,6 @@ export const api = {
   commands: {
     create: (payload: LightCommandCreate) => apiRequest<LightCommand>('/light-commands', { method: 'POST', body: payload, idempotent: true }),
     get: (id: string) => apiRequest<LightCommand>(`/light-commands/${encodeURIComponent(id)}`),
-  },
-  devices: {
-    list: (params: Params) => page<AndroidDevice>('/android-devices', params),
-    rename: (id: string, display_name: string) =>
-      apiRequest<AndroidDevice>(`/android-devices/${encodeURIComponent(id)}/rename`, { method: 'POST', body: { display_name } }),
   },
   logs: {
     list: (params: Params) => page<OperationLog>('/operation-logs', params),

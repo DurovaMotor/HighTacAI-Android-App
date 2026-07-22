@@ -19,7 +19,6 @@ import com.example.deepchatdemo.platform.model.BrokerStatusChangedEvent
 import com.example.deepchatdemo.platform.model.CheckStatus
 import com.example.deepchatdemo.platform.model.CommandItemStatus
 import com.example.deepchatdemo.platform.model.CommandStatusChangedEvent
-import com.example.deepchatdemo.platform.model.DeviceStatus
 import com.example.deepchatdemo.platform.model.DeviceStatusChangedEvent
 import com.example.deepchatdemo.platform.model.LightCommand
 import com.example.deepchatdemo.platform.model.LightCommandRequest
@@ -93,11 +92,7 @@ class RemotePlatformRepository(
     private val _accessState = MutableStateFlow(
         PlatformAccessState(
             apiAvailability = PlatformApiAvailability.UNKNOWN,
-            deviceAuthorization = if (credentials.deviceToken() == null) {
-                PlatformDeviceAuthorization.ENROLLMENT_REQUIRED
-            } else {
-                PlatformDeviceAuthorization.UNKNOWN
-            }
+            deviceAuthorization = PlatformDeviceAuthorization.APPROVED
         )
     )
     private val _products = MutableStateFlow(PlatformSnapshot<List<Product>>(emptyList()))
@@ -144,22 +139,16 @@ class RemotePlatformRepository(
                 observerJobs += scope.launch {
                     eventStream.connectionState.collect { connectionState ->
                         if (connectionState == PlatformEventConnectionState.AuthenticationRequired) {
-                            credentials.clearDeviceToken()
                             _accessState.update {
-                                it.copy(
-                                    deviceAuthorization =
-                                        PlatformDeviceAuthorization.REVOKED_OR_INVALID
-                                )
+                                it.copy(apiAvailability = PlatformApiAvailability.UNAVAILABLE)
                             }
                         }
                     }
                 }
             }
-            if (credentials.deviceToken() != null) {
-                eventStream.connect()
-                if (initialRefreshJob?.isActive != true) {
-                    initialRefreshJob = scope.launch { refreshAllIgnoringFailure() }
-                }
+            eventStream.connect()
+            if (initialRefreshJob?.isActive != true) {
+                initialRefreshJob = scope.launch { refreshAllIgnoringFailure() }
             }
             startStationStatusRefreshLocked()
         }
@@ -226,11 +215,7 @@ class RemotePlatformRepository(
         }
         _accessState.value = PlatformAccessState(
             apiAvailability = PlatformApiAvailability.UNKNOWN,
-            deviceAuthorization = if (credentials.deviceToken() == null) {
-                PlatformDeviceAuthorization.ENROLLMENT_REQUIRED
-            } else {
-                PlatformDeviceAuthorization.UNKNOWN
-            }
+            deviceAuthorization = PlatformDeviceAuthorization.APPROVED
         )
     }
 
@@ -640,19 +625,13 @@ class RemotePlatformRepository(
                 PlatformWriteClosedReason.CONTRACT_INCOMPATIBLE
             access.apiAvailability == PlatformApiAvailability.UNAVAILABLE ->
                 PlatformWriteClosedReason.API_UNAVAILABLE
-            access.deviceAuthorization != PlatformDeviceAuthorization.APPROVED ->
-                PlatformWriteClosedReason.DEVICE_NOT_APPROVED
             else -> PlatformWriteClosedReason.API_NOT_VERIFIED
         }
         throw PlatformWriteClosedException(reason)
     }
 
     private fun requireTokenForRead() {
-        if (credentials.deviceToken() != null) return
-        _accessState.update {
-            it.copy(deviceAuthorization = PlatformDeviceAuthorization.ENROLLMENT_REQUIRED)
-        }
-        throw PlatformAuthenticationException()
+        // Android access is intentionally anonymous. Legacy credentials remain stored but unused.
     }
 
     private fun currentEndpointContext(): EndpointContext = synchronized(endpointLock) {
@@ -913,22 +892,7 @@ class RemotePlatformRepository(
     }
 
     private fun applyDeviceStatus(event: DeviceStatusChangedEvent) {
-        if (credentials.deviceId() != event.payload.deviceId) return
-        when (event.payload.currentStatus) {
-            DeviceStatus.APPROVED -> _accessState.update {
-                it.copy(deviceAuthorization = PlatformDeviceAuthorization.APPROVED)
-            }
-            DeviceStatus.PENDING -> _accessState.update {
-                it.copy(deviceAuthorization = PlatformDeviceAuthorization.UNKNOWN)
-            }
-            DeviceStatus.REVOKED -> {
-                credentials.clearDeviceToken()
-                _accessState.update {
-                    it.copy(deviceAuthorization = PlatformDeviceAuthorization.REVOKED_OR_INVALID)
-                }
-                eventStream.disconnect()
-            }
-        }
+        // Device status events are legacy audit data and never gate app access.
     }
 
     private fun scheduleBindingSnapshotRefresh() {
@@ -993,23 +957,18 @@ class RemotePlatformRepository(
             var consecutiveFailures = 0
             while (true) {
                 val baseInterval = StationStatusRefreshPolicy.intervalFor(_stations.value.value)
-                val nextDelay = if (credentials.deviceToken() == null) {
+                val nextDelay = try {
+                    refreshStations()
                     consecutiveFailures = 0
-                    StationStatusRefreshPolicy.MAX_FAILURE_INTERVAL_MILLIS
-                } else {
-                    try {
-                        refreshStations()
-                        consecutiveFailures = 0
-                        StationStatusRefreshPolicy.intervalFor(_stations.value.value)
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (_: Exception) {
-                        consecutiveFailures += 1
-                        StationStatusRefreshPolicy.retryDelay(
-                            baseIntervalMillis = baseInterval,
-                            consecutiveFailures = consecutiveFailures
-                        )
-                    }
+                    StationStatusRefreshPolicy.intervalFor(_stations.value.value)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    consecutiveFailures += 1
+                    StationStatusRefreshPolicy.retryDelay(
+                        baseIntervalMillis = baseInterval,
+                        consecutiveFailures = consecutiveFailures
+                    )
                 }
                 stationRefreshSleeper(nextDelay)
             }
@@ -1027,7 +986,7 @@ class RemotePlatformRepository(
     private fun recordFailure(error: Exception) {
         when (error) {
             is PlatformAuthenticationException -> _accessState.update {
-                it.copy(deviceAuthorization = PlatformDeviceAuthorization.ENROLLMENT_REQUIRED)
+                it.copy(apiAvailability = PlatformApiAvailability.UNAVAILABLE)
             }
             is PlatformTransportException,
             is PlatformWriteClosedException -> _accessState.update {
@@ -1038,11 +997,9 @@ class RemotePlatformRepository(
             }
             is PlatformApiException -> when {
                 error.isAuthenticationFailure -> {
-                    credentials.clearDeviceToken()
                     _accessState.update {
-                        it.copy(deviceAuthorization = PlatformDeviceAuthorization.REVOKED_OR_INVALID)
+                        it.copy(apiAvailability = PlatformApiAvailability.UNAVAILABLE)
                     }
-                    eventStream.disconnect()
                 }
                 error.isUnavailable -> _accessState.update {
                     it.copy(apiAvailability = PlatformApiAvailability.UNAVAILABLE)

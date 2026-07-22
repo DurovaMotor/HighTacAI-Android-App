@@ -138,14 +138,6 @@ class OkHttpPlatformEventClient(
 
     private fun openSocketLocked() {
         if (!shouldRun) return
-        val token = tokenProvider.deviceToken()
-        if (token == null) {
-            shouldRun = false
-            _connectionState.value = PlatformEventConnectionState.AuthenticationRequired
-            _failures.tryEmit(PlatformEventFailure(PlatformEventFailureKind.AUTHENTICATION_REJECTED))
-            return
-        }
-
         callbackGeneration += 1
         val generation = callbackGeneration
         val displayedAttempt = reconnectAttempt + 1
@@ -153,7 +145,8 @@ class OkHttpPlatformEventClient(
         val builder = Request.Builder()
             .url(endpointProvider.currentEndpoint().eventsWebSocketUrl)
             .header("User-Agent", USER_AGENT)
-        token.use { builder.header("Authorization", "Bearer $it") }
+            .header(INSTALLATION_ID_HEADER, tokenProvider.installationId().toString())
+            .removeHeader("Authorization")
         webSocket = client.newWebSocket(builder.build(), Listener(generation))
     }
 
@@ -293,6 +286,7 @@ class OkHttpPlatformEventClient(
 
     companion object {
         private const val USER_AGENT = "HighTac-Android/1"
+        private const val INSTALLATION_ID_HEADER = "X-Android-Installation-Id"
         private const val EVENT_BUFFER_CAPACITY = 128
         private const val NORMAL_CLOSURE_CODE = 1_000
         private const val UNSUPPORTED_DATA_CODE = 1_003

@@ -45,12 +45,6 @@ import com.example.deepchatdemo.platform.repository.PlatformApiAvailability
 import com.example.deepchatdemo.platform.repository.PlatformDeviceAuthorization
 import com.example.deepchatdemo.platform.repository.PlatformRepository
 import com.example.deepchatdemo.platform.repository.PlatformSnapshot
-import com.example.deepchatdemo.platform.security.DeviceEnrollmentController
-import com.example.deepchatdemo.platform.security.EnrollmentClientState
-import com.example.deepchatdemo.platform.model.DeviceEnrollmentCreated
-import com.example.deepchatdemo.platform.model.DeviceEnrollmentState
-import com.example.deepchatdemo.platform.model.EnrollmentStatus
-import com.example.deepchatdemo.ui.light.DeviceEnrollmentUiStatus
 import com.example.deepchatdemo.ui.light.LightFindingViewModel
 import java.io.IOException
 import java.time.Instant
@@ -126,16 +120,13 @@ class LightFindingViewModelTest {
     }
 
     @Test
-    fun invalidCredentialsTriggerAutomaticRegistrationWithoutManualAction() {
+    fun legacyDeviceStatusNeverTriggersEnrollmentOrClosesBackendAccess() {
         val repository = FakePlatformRepository()
-        val enrollment = RecoveringEnrollmentController()
         val scope = testScope()
-        val viewModel = viewModel(repository, scope, enrollmentManager = enrollment)
+        val viewModel = viewModel(repository, scope)
 
         repository.publishAuthorization(PlatformDeviceAuthorization.REVOKED_OR_INVALID)
 
-        assertEquals(1, enrollment.beginCalls)
-        assertEquals(DeviceEnrollmentUiStatus.APPROVED, viewModel.uiState.enrollmentStatus)
         assertTrue(viewModel.uiState.endpointVerified)
         scope.cancel()
     }
@@ -302,17 +293,14 @@ private fun viewModel(
     repository: FakePlatformRepository,
     scope: CoroutineScope,
     legacyBindings: List<LightBinding> = emptyList(),
-    reviews: FakeMigrationReviewStore = FakeMigrationReviewStore(),
-    enrollmentManager: DeviceEnrollmentController = ApprovedEnrollmentController()
+    reviews: FakeMigrationReviewStore = FakeMigrationReviewStore()
 ) = LightFindingViewModel(
     configStore = FakePlatformConfigStore(),
     repository = repository,
-    enrollmentManager = enrollmentManager,
     legacyBindingRepository = InMemoryLightBindingRepository(legacyBindings),
     legacyMigrationReviews = reviews,
     runtimeCloser = repository::stopRealtime,
     externalScope = scope,
-    pollSleeper = {},
     autoConnect = true
 )
 
@@ -337,39 +325,6 @@ private class FakePlatformConfigStore : PlatformConfigStore {
     override fun resetToDefault() {
         url = PlatformUrlValidator.DEFAULT_SERVER_URL
     }
-}
-
-private class ApprovedEnrollmentController : DeviceEnrollmentController {
-    override val state: StateFlow<EnrollmentClientState> =
-        MutableStateFlow(EnrollmentClientState.Approved)
-
-    override suspend fun beginEnrollment(): DeviceEnrollmentCreated =
-        error("Enrollment must not restart for approved test credentials.")
-
-    override suspend fun pollEnrollment(): DeviceEnrollmentState =
-        error("Approved credentials must not poll enrollment.")
-}
-
-private class RecoveringEnrollmentController : DeviceEnrollmentController {
-    override val state: StateFlow<EnrollmentClientState> =
-        MutableStateFlow(EnrollmentClientState.Approved)
-    var beginCalls: Int = 0
-
-    override suspend fun beginEnrollment(): DeviceEnrollmentCreated {
-        beginCalls += 1
-        return DeviceEnrollmentCreated(
-            id = UUID.fromString("10000000-0000-4000-8000-000000000001"),
-            status = EnrollmentStatus.APPROVED,
-            pollSecret = null,
-            expiresAt = NOW,
-            pollAfterSeconds = null,
-            displayName = "Recovered phone",
-            deviceId = UUID.fromString("20000000-0000-4000-8000-000000000001")
-        )
-    }
-
-    override suspend fun pollEnrollment(): DeviceEnrollmentState =
-        error("Direct automatic registration must not poll.")
 }
 
 private class FakeMigrationReviewStore : LegacyBindingMigrationReviewStore {

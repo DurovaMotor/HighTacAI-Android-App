@@ -4,7 +4,7 @@ import { App as AntApp, Avatar, Breadcrumb, Button, Drawer, Dropdown, Layout, Me
 import {
   Activity, ArchiveRestore, Boxes, ChevronLeft, ChevronRight, CircleUserRound, ClipboardList,
   Gauge, Lightbulb, Logs, Menu as MenuIcon, RadioTower, RefreshCw, Server, Settings, ShieldCheck,
-  Smartphone, Tags, Unplug, Wifi, WifiOff, X,
+  Tags, Unplug, Wifi, WifiOff, X,
 } from 'lucide-react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
@@ -31,7 +31,6 @@ const navItems: MenuProps['items'] = [
     ],
   },
   { key: '/light-control', icon: <Lightbulb size={17} />, label: '灯光控制' },
-  { key: '/settings/devices', icon: <Smartphone size={17} />, label: 'Android 设备' },
   { key: '/operation-logs', icon: <ClipboardList size={17} />, label: '操作记录' },
   {
     key: 'settings-group', icon: <Settings size={17} />, label: '系统设置', children: [
@@ -44,7 +43,7 @@ const navItems: MenuProps['items'] = [
 
 const routeMeta: Array<[string, string, string?]> = [
   ['/settings/security', '管理员安全', '系统设置'], ['/settings/backups', '备份与恢复', '系统设置'],
-  ['/settings/devices', 'Android 设备', '系统设置'], ['/settings/site', '站点与网络', '系统设置'],
+  ['/settings/site', '站点与网络', '系统设置'],
   ['/operation-logs', '操作记录'], ['/light-control', '灯光控制'], ['/bindings', '绑定关系', '产品与绑定'],
   ['/products', '产品', '产品与绑定'], ['/tags/low-battery', '低电量灯条', '灯条管理'],
   ['/tags/abnormal', '异常灯条', '灯条管理'], ['/tags', '全部灯条', '灯条管理'],

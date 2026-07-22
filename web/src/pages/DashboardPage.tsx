@@ -75,7 +75,6 @@ export default function DashboardPage() {
             <MetricTile label="低电量灯条" value={data?.tag_counts.low_battery ?? 0} tone={(data?.tag_counts.low_battery || 0) > 0 ? 'warning' : 'success'} meta={`未绑定 ${data?.tag_counts.unbound ?? 0}`} />
             <MetricTile label="产品与绑定" value={data?.product_counts.total ?? 0} tone="info" meta={`有效绑定 ${data?.product_counts.active_bindings ?? 0}`} />
             <MetricTile label="24h 命令确认率" value={percent(data?.command_counts_24h.confirmation_rate)} tone={(data?.command_counts_24h.unconfirmed || 0) > 0 ? 'warning' : 'success'} meta={`命令 ${data?.command_counts_24h.total ?? 0} · 未确认 ${data?.command_counts_24h.unconfirmed ?? 0}`} />
-            <MetricTile label="Android 设备" value={`${data?.device_counts.online ?? 0} / ${data?.device_counts.approved ?? 0}`} tone="info" meta={`在线 / 已注册 · 注册中 ${data?.device_counts.pending ?? 0}`} />
           </div>
 
           <div className="system-strip" role="status">

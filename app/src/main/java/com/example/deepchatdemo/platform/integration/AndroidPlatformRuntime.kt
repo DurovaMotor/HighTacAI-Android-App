@@ -11,11 +11,7 @@ import com.example.deepchatdemo.platform.network.OkHttpHighTacPlatformApi
 import com.example.deepchatdemo.platform.network.OkHttpPlatformEventClient
 import com.example.deepchatdemo.platform.repository.PlatformRepository
 import com.example.deepchatdemo.platform.repository.RemotePlatformRepository
-import com.example.deepchatdemo.platform.security.AndroidBuildMetadataProvider
-import com.example.deepchatdemo.platform.security.AndroidDeviceIdentityProvider
 import com.example.deepchatdemo.platform.security.AndroidKeystoreCredentialStore
-import com.example.deepchatdemo.platform.security.DeviceEnrollmentController
-import com.example.deepchatdemo.platform.security.DeviceEnrollmentManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,7 +20,6 @@ import kotlinx.coroutines.cancel
 class AndroidPlatformRuntime private constructor(
     val configStore: PlatformConfigStore,
     val repository: PlatformRepository,
-    val enrollment: DeviceEnrollmentController,
     val legacyBindings: LightBindingRepository,
     val legacyMigrationReviews: LegacyBindingMigrationReviewStore,
     private val cacheDatabase: PlatformCacheDatabase,
@@ -32,7 +27,6 @@ class AndroidPlatformRuntime private constructor(
 ) : AutoCloseable {
     override fun close() {
         (repository as? AutoCloseable)?.close() ?: repository.stopRealtime()
-        (enrollment as? AutoCloseable)?.close()
         cacheDatabase.close()
         scope.cancel()
     }
@@ -62,17 +56,9 @@ class AndroidPlatformRuntime private constructor(
                 scope = scope,
                 cache = RoomPlatformCache(cacheDatabase.cacheDao())
             )
-            val enrollment = DeviceEnrollmentManager(
-                api = api,
-                identityProvider = AndroidDeviceIdentityProvider(applicationContext),
-                metadataProvider = AndroidBuildMetadataProvider(applicationContext),
-                credentialStore = credentials,
-                endpointProvider = configStore
-            )
             return AndroidPlatformRuntime(
                 configStore = configStore,
                 repository = repository,
-                enrollment = enrollment,
                 legacyBindings = SharedPreferencesLightBindingRepository(applicationContext),
                 legacyMigrationReviews =
                     SharedPreferencesLegacyBindingMigrationReviewStore(applicationContext),

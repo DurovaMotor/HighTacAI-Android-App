@@ -169,7 +169,7 @@ sealed class PlatformClientException(message: String, cause: Throwable? = null) 
     IOException(message, cause)
 
 class PlatformAuthenticationException : PlatformClientException(
-    "Approved Android device authentication is required."
+    "The platform rejected the Android request."
 )
 
 class PlatformTransportException(cause: IOException) : PlatformClientException(
@@ -323,7 +323,7 @@ class OkHttpHighTacPlatformApi(
         request = Request.Builder()
             .url(apiUrl("migrations", "android-bindings", "preview"))
             .standardHeaders()
-            .androidBearer()
+            .anonymousAndroidAccess()
             .post(jsonBody(PlatformJsonCodec.encodeAndroidBindingMigrationPreview(request)))
             .build(),
         acceptedStatusCodes = setOf(200),
@@ -425,7 +425,7 @@ class OkHttpHighTacPlatformApi(
             .url(url)
             .standardHeaders()
             .get()
-        if (authenticated) builder.androidBearer()
+        if (authenticated) builder.anonymousAndroidAccess()
         return executeJson(
             request = builder.build(),
             acceptedStatusCodes = acceptedStatusCodes,
@@ -442,7 +442,7 @@ class OkHttpHighTacPlatformApi(
     ): T {
         val request = requestBuilder
             .standardHeaders()
-            .androidBearer()
+            .anonymousAndroidAccess()
             .header(IDEMPOTENCY_HEADER, idempotencyKey.value)
             .build()
         return executeJson(request, acceptedStatusCodes, parser = parser)
@@ -526,12 +526,10 @@ class OkHttpHighTacPlatformApi(
         header("Accept", JSON_MEDIA_TYPE_STRING)
             .header("Cache-Control", "no-store")
             .header("User-Agent", USER_AGENT)
+            .header(INSTALLATION_ID_HEADER, tokenProvider.installationId().toString())
 
-    private fun Request.Builder.androidBearer(): Request.Builder {
-        val token = tokenProvider.deviceToken() ?: throw PlatformAuthenticationException()
-        token.use { header("Authorization", "Bearer $it") }
-        return this
-    }
+    private fun Request.Builder.anonymousAndroidAccess(): Request.Builder =
+        removeHeader("Authorization")
 
     private fun String?.addQuery(builder: HttpUrl.Builder, name: String, maximumLength: Int) {
         val value = this?.trim()?.takeIf { it.isNotEmpty() } ?: return
@@ -543,6 +541,7 @@ class OkHttpHighTacPlatformApi(
 
     companion object {
         private const val IDEMPOTENCY_HEADER = "Idempotency-Key"
+        private const val INSTALLATION_ID_HEADER = "X-Android-Installation-Id"
         private const val ENROLLMENT_SECRET_HEADER = "X-Enrollment-Secret"
         private const val JSON_MEDIA_TYPE_STRING = "application/json"
         private const val USER_AGENT = "HighTac-Android/1"

@@ -28,10 +28,9 @@ def test_event_builder_covers_every_contract_event_type() -> None:
         EVENT_VALIDATOR.validate(event)
 
 
-def test_authenticated_websocket_only_emits_schema_valid_events(
+def test_anonymous_websocket_only_emits_app_safe_schema_valid_events(
     harness,
 ) -> None:
-    harness.login()
     with harness.client.websocket_connect(
         "/api/v1/ws/events"
     ) as websocket:
@@ -52,6 +51,57 @@ def test_authenticated_websocket_only_emits_schema_valid_events(
         event = websocket.receive_json()
         EVENT_VALIDATOR.validate(event)
         assert event["payload"]["code"] == "TEST_NOTICE"
+
+        harness.runtime.event_bus.publish_threadsafe(
+            "device.status_changed",
+            "private-device-id",
+            {
+                "device_id": "private-device-id",
+                "display_name": "Private phone",
+                "previous_status": "PENDING",
+                "current_status": "APPROVED",
+                "manufacturer": "Private",
+                "model": "Phone",
+                "app_version": "1.0",
+                "reason": "admin_only_test",
+            },
+        )
+        harness.runtime.event_bus.publish_threadsafe(
+            "system.notice",
+            "HighTacPlatform",
+            {
+                "severity": "INFO",
+                "code": "AFTER_PRIVATE_EVENT",
+                "message": "Anonymous stream remains filtered.",
+                "resource_type": None,
+                "resource_id": None,
+            },
+        )
+        filtered = websocket.receive_json()
+        assert filtered["event_type"] == "system.notice"
+        assert filtered["payload"]["code"] == "AFTER_PRIVATE_EVENT"
+
+
+def test_admin_websocket_receives_device_status_events(harness) -> None:
+    harness.login()
+    with harness.client.websocket_connect("/api/v1/ws/events") as websocket:
+        websocket.receive_json()
+        harness.runtime.event_bus.publish_threadsafe(
+            "device.status_changed",
+            "admin-visible-device",
+            {
+                "device_id": "admin-visible-device",
+                "display_name": None,
+                "previous_status": "PENDING",
+                "current_status": "APPROVED",
+                "manufacturer": "Test",
+                "model": "Phone",
+                "app_version": "1.0",
+                "reason": "admin_visibility_test",
+            },
+        )
+        event = websocket.receive_json()
+        assert event["event_type"] == "device.status_changed"
 
 
 def test_non_upgrade_events_get_returns_contract_426(harness) -> None:

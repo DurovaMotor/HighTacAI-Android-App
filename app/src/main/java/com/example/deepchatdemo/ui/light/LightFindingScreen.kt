@@ -28,7 +28,6 @@ import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material.icons.rounded.ViewWeek
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.Icon
@@ -254,18 +253,11 @@ private fun StatusPanel(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusPill(
-                    icon = Icons.Rounded.VerifiedUser,
-                    text = uiState.enrollmentStatus.label(),
-                    color = uiState.enrollmentStatus.statusColor()
-                )
-                StatusPill(
-                    icon = Icons.Rounded.Sync,
-                    text = uiState.eventConnectionState.label(),
-                    color = uiState.eventConnectionState.statusColor()
-                )
-            }
+            StatusPill(
+                icon = Icons.Rounded.Sync,
+                text = uiState.eventConnectionState.label(),
+                color = uiState.eventConnectionState.statusColor()
+            )
             Spacer(Modifier.height(8.dp))
             StatusPill(
                 icon = Icons.Rounded.History,
@@ -973,11 +965,7 @@ private fun LightGlassPanel(
 }
 
 private fun connectButtonLabel(uiState: LightFindingUiState): String {
-    return when {
-        uiState.isAutoRegistering -> "检查注册"
-        uiState.enrollmentStatus == DeviceEnrollmentUiStatus.APPROVED -> "刷新"
-        else -> "登记设备"
-    }
+    return if (uiState.connectionEnabled) "刷新" else "连接"
 }
 
 private fun brokerLabel(uiState: LightFindingUiState): String {
@@ -1052,37 +1040,13 @@ private fun PlatformBackendUiStatus.statusColor(): Color {
     }
 }
 
-private fun DeviceEnrollmentUiStatus.label(): String {
-    return when (this) {
-        DeviceEnrollmentUiStatus.NOT_STARTED -> "设备未登记"
-        DeviceEnrollmentUiStatus.REGISTERING -> "设备登记中"
-        DeviceEnrollmentUiStatus.AUTO_REGISTERING -> "设备自动注册中"
-        DeviceEnrollmentUiStatus.APPROVED -> "设备已注册"
-        DeviceEnrollmentUiStatus.REJECTED -> "设备被拒绝"
-        DeviceEnrollmentUiStatus.EXPIRED -> "登记已过期"
-        DeviceEnrollmentUiStatus.REVOKED -> "凭据刷新中"
-    }
-}
-
-private fun DeviceEnrollmentUiStatus.statusColor(): Color {
-    return when (this) {
-        DeviceEnrollmentUiStatus.APPROVED -> LightUiColors.Green
-        DeviceEnrollmentUiStatus.REGISTERING,
-        DeviceEnrollmentUiStatus.AUTO_REGISTERING -> LightUiColors.Warning
-        DeviceEnrollmentUiStatus.REJECTED,
-        DeviceEnrollmentUiStatus.EXPIRED,
-        DeviceEnrollmentUiStatus.REVOKED -> LightUiColors.Danger
-        DeviceEnrollmentUiStatus.NOT_STARTED -> LightUiColors.Muted
-    }
-}
-
 private fun PlatformEventConnectionState.label(): String {
     return when (this) {
         PlatformEventConnectionState.Stopped -> "实时未连接"
         is PlatformEventConnectionState.Connecting -> "实时连接中"
         is PlatformEventConnectionState.Connected -> "实时已连接"
         is PlatformEventConnectionState.ReconnectScheduled -> "实时重连中"
-        PlatformEventConnectionState.AuthenticationRequired -> "实时鉴权恢复中"
+        PlatformEventConnectionState.AuthenticationRequired -> "实时连接受限"
     }
 }
 

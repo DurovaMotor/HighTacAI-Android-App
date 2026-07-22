@@ -1,30 +1,29 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, App, Button, Form, Input, Modal, Select, Table, Tabs, Tooltip, type TableColumnsType } from 'antd';
-import { ArchiveRestore, DatabaseBackup, KeyRound, Pencil, Save, ShieldCheck } from 'lucide-react';
+import { ArchiveRestore, DatabaseBackup, KeyRound, Save, ShieldCheck } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/endpoints';
-import type { AdminUser, AndroidDevice, BackupRecord, SiteSettingsPatch } from '../api/types';
+import type { AdminUser, BackupRecord, SiteSettingsPatch } from '../api/types';
 import { EmptyBlock, InlineKeyValue, PageHeader, Panel, QueryError, StatusBadge } from '../components/common';
 import { formatBytes, formatDateTime } from '../lib/format';
 import { useAuth } from '../auth/AuthProvider';
 
-const sections = ['site', 'devices', 'backups', 'security'] as const;
+const sections = ['site', 'backups', 'security'] as const;
 type Section = typeof sections[number];
 
 export default function SettingsPage() {
   const params = useParams();
   const navigate = useNavigate();
   const section: Section = sections.includes(params.section as Section) ? params.section as Section : 'site';
-  const title = { site: '站点与网络', devices: 'Android 设备', backups: '备份与恢复', security: '管理员安全' }[section];
+  const title = { site: '站点与网络', backups: '备份与恢复', security: '管理员安全' }[section];
   return (
     <div>
       <PageHeader title={title} description="HighTac 现场平台系统设置" />
       <Tabs className="settings-tabs" activeKey={section} onChange={(key) => navigate(`/settings/${key}`)} items={[
-        { key: 'site', label: '站点与网络' }, { key: 'devices', label: 'Android 设备' }, { key: 'backups', label: '备份与恢复' }, { key: 'security', label: '管理员安全' },
+        { key: 'site', label: '站点与网络' }, { key: 'backups', label: '备份与恢复' }, { key: 'security', label: '管理员安全' },
       ]} />
       {section === 'site' && <SiteNetworkSettings />}
-      {section === 'devices' && <DeviceSettings />}
       {section === 'backups' && <BackupSettings />}
       {section === 'security' && <SecuritySettings />}
     </div>
@@ -89,40 +88,6 @@ function SiteNetworkSettings() {
       </Panel>
     </div>
   );
-}
-
-function DeviceSettings() {
-  const { message } = App.useApp();
-  const queryClient = useQueryClient();
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
-  const [renameTarget, setRenameTarget] = useState<AndroidDevice>();
-  const [renameForm] = Form.useForm<{ display_name: string }>();
-  const list = useQuery({ queryKey: ['devices', { page, pageSize }], queryFn: () => api.devices.list({ page, page_size: pageSize, sort: '-last_seen_at' }), refetchInterval: 10_000 });
-  const rename = useMutation({ mutationFn: ({ id, name }: { id: string; name: string }) => api.devices.rename(id, name), onSuccess: () => { message.success('设备名称已更新'); setRenameTarget(undefined); renameForm.resetFields(); queryClient.invalidateQueries({ queryKey: ['devices'] }); }, onError: (error) => message.error(error instanceof Error ? error.message : '重命名失败') });
-
-  const columns: TableColumnsType<AndroidDevice> = [
-    { title: '现场名称', dataIndex: 'display_name', width: 180, render: (value, row) => <span><strong>{value || '未命名设备'}</strong><small className="table-secondary mono">{row.id}</small></span> },
-    { title: '设备', key: 'device', width: 200, render: (_, row) => <span>{[row.manufacturer, row.model].filter(Boolean).join(' ') || '未知型号'}<small className="table-secondary">App {row.app_version || '—'}</small></span> },
-    { title: '注册状态', dataIndex: 'status', width: 112, render: (value) => <StatusBadge status={value} label={value === 'APPROVED' ? '已自动授权' : value === 'PENDING' ? '注册中' : '历史已停用'} /> },
-    { title: '连接', dataIndex: 'online', width: 98, render: (value) => <StatusBadge status={value ? 'ONLINE' : 'OFFLINE'} /> },
-    { title: '首次连接', dataIndex: 'first_seen_at', width: 176, render: (value) => formatDateTime(value) },
-    { title: '最后在线', dataIndex: 'last_seen_at', width: 176, render: (value) => formatDateTime(value) },
-    { title: '注册时间', dataIndex: 'approved_at', width: 176, render: (value) => formatDateTime(value) },
-    {
-      title: '操作', key: 'actions', width: 88, fixed: 'right', render: (_, row) =>
-        <Tooltip title="修改现场名称"><Button type="text" aria-label={`重命名设备 ${row.id}`} icon={<Pencil size={16} />} onClick={() => { setRenameTarget(row); renameForm.setFieldValue('display_name', row.display_name); }} /></Tooltip>,
-    },
-  ];
-
-  return <>
-    <Alert className="connection-alert" type="info" showIcon message="Android 设备安装后自动注册并获得完整功能权限，无需人工批准。此处仅用于查看设备和维护现场名称。" />
-    <Panel className="panel-table" title={`Android 设备${list.data ? `（${list.data.pagination.total_items}）` : ''}`}>
-      {list.isError && <div className="table-error"><QueryError error={list.error} onRetry={() => list.refetch()} /></div>}
-      <div className="table-wrap"><Table<AndroidDevice> rowKey="id" columns={columns} dataSource={list.data?.items || []} loading={list.isLoading} size="small" bordered scroll={{ x: 1180 }} locale={{ emptyText: <EmptyBlock description="暂无 Android 设备" /> }} pagination={{ current: page, pageSize, total: list.data?.pagination.total_items || 0, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (total) => `共 ${total} 台` }} onChange={(pagination) => { setPage(pagination.current || 1); setPageSize(pagination.pageSize || 20); }} /></div>
-    </Panel>
-    <Modal title="修改设备名称" open={Boolean(renameTarget)} onCancel={() => setRenameTarget(undefined)} onOk={() => renameForm.submit()} okText="保存" cancelText="取消" confirmLoading={rename.isPending}><Form form={renameForm} layout="vertical" requiredMark={false} onFinish={(values) => renameTarget && rename.mutate({ id: renameTarget.id, name: values.display_name })}><Form.Item name="display_name" label="现场名称" rules={[{ required: true }, { max: 80 }]}><Input autoFocus /></Form.Item></Form></Modal>
-  </>;
 }
 
 function BackupSettings() {

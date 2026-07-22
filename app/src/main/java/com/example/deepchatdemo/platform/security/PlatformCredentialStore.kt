@@ -19,6 +19,14 @@ import javax.crypto.spec.GCMParameterSpec
 
 fun interface PlatformAuthTokenProvider {
     fun deviceToken(): SensitiveString?
+
+    fun installationId(): UUID = LEGACY_INSTALLATION_ID
+
+    companion object {
+        private val LEGACY_INSTALLATION_ID = UUID.fromString(
+            "00000000-0000-4000-8000-000000000001"
+        )
+    }
 }
 
 data class StoredEnrollment(
@@ -71,6 +79,16 @@ class AndroidKeystoreCredentialStore(
             DeviceFingerprint.sha256Hex(secret)
         } finally {
             secret?.fill(0)
+        }
+    }
+
+    override fun installationId(): UUID = synchronized(lock) {
+        preferences.getString(KEY_INSTALLATION_ID, null)?.let { stored ->
+            runCatching { UUID.fromString(stored) }.getOrNull()
+        } ?: UUID.randomUUID().also { created ->
+            check(preferences.edit().putString(KEY_INSTALLATION_ID, created.toString()).commit()) {
+                "Unable to persist the Android installation identifier."
+            }
         }
     }
 
@@ -299,6 +317,7 @@ class AndroidKeystoreCredentialStore(
     private companion object {
         const val PREFERENCES_NAME = "hightac_platform_protected_credentials"
         const val KEY_INSTALLATION_SECRET = "installation_secret"
+        const val KEY_INSTALLATION_ID = "installation_id"
         const val KEY_CREDENTIAL_ENDPOINT = "credential_endpoint"
         const val KEY_ENROLLMENT_ID = "enrollment_id"
         const val KEY_ENROLLMENT_POLL_SECRET = "enrollment_poll_secret"

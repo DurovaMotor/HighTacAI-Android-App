@@ -38,7 +38,7 @@ class OpenAiResponsesApi(
         val requestStartedAt = SystemClock.elapsedRealtime()
         Log.d(
             TAG,
-            "Request start: approvedDevice=${transport.hasApprovedDeviceToken()}, " +
+            "Request start: anonymousAndroidAccess=true, " +
                 "model=${ApiConfig.MODEL}, reasoningEffort=${reasoningEffort.displayName}, " +
                 "reasoningIncluded=${reasoningEffort.apiValue != null}, " +
                 "messageCount=${messages.count { !it.isLoading && !it.isError }}, " +

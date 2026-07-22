@@ -45,7 +45,7 @@ class HighTacPlatformApiMigrationTest {
     }
 
     @Test
-    fun previewUsesBearerWithoutIdempotencyAndCommitUsesProvidedUuid() = runBlocking {
+    fun migrationUsesAnonymousInstallationIdentityAndProvidedIdempotencyUuid() = runBlocking {
         server.enqueue(jsonResponse(previewResponse()))
         server.enqueue(jsonResponse(commitResponse()))
         val record = AndroidBindingMigrationRecord(
@@ -62,7 +62,8 @@ class HighTacPlatformApiMigrationTest {
         val previewRequest = server.takeRequest()
         assertEquals("POST", previewRequest.method)
         assertEquals("/api/v1/migrations/android-bindings/preview", previewRequest.path)
-        assertEquals("Bearer approved-android-token", previewRequest.getHeader("Authorization"))
+        assertNull(previewRequest.getHeader("Authorization"))
+        assertEquals(INSTALLATION_ID, previewRequest.getHeader("X-Android-Installation-Id"))
         assertNull(previewRequest.getHeader("Idempotency-Key"))
         assertEquals("legacy-1", previewRequest.bodyJson().getJSONArray("records")
             .getJSONObject(0).getString("client_record_key"))
@@ -79,13 +80,16 @@ class HighTacPlatformApiMigrationTest {
         val commitRequest = server.takeRequest()
         assertEquals("POST", commitRequest.method)
         assertEquals("/api/v1/migrations/android-bindings/commit", commitRequest.path)
-        assertEquals("Bearer approved-android-token", commitRequest.getHeader("Authorization"))
+        assertNull(commitRequest.getHeader("Authorization"))
+        assertEquals(INSTALLATION_ID, commitRequest.getHeader("X-Android-Installation-Id"))
         assertEquals(idempotencyKey.value, commitRequest.getHeader("Idempotency-Key"))
         val commitBody = commitRequest.bodyJson()
         assertEquals(PREVIEW_TOKEN, commitBody.getString("preview_token"))
         assertEquals(0, commitBody.getJSONArray("selected_duplicate_keys").length())
     }
 }
+
+private const val INSTALLATION_ID = "00000000-0000-4000-8000-000000000001"
 
 private fun jsonResponse(body: String) = MockResponse()
     .setResponseCode(200)

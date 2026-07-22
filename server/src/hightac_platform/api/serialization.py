@@ -22,6 +22,7 @@ from hightac_platform.db.models import (
     Site,
     Station,
 )
+from hightac_platform.auth.context import ANONYMOUS_ANDROID_ACTOR_ID
 from hightac_platform.db.repositories import CommandRepository, PageResult
 from hightac_platform.domain.enums import CommandItemStatus
 from hightac_platform.utils import ms_to_datetime, utc_ms
@@ -517,6 +518,8 @@ def _actor_display_name(session: Session, binding: Binding) -> str:
         actor = session.get(AdminUser, binding.actor_id)
         return actor.username if actor else binding.actor_id
     if binding.actor_type == "ANDROID":
+        if binding.actor_id == ANONYMOUS_ANDROID_ACTOR_ID:
+            return "Anonymous Android app"
         device = session.get(AndroidDevice, binding.actor_id)
         if device:
             return (

@@ -179,7 +179,7 @@ test('navigation reaches every M4 work surface without viewport overflow', async
   await login(page);
   const destinations = [
     ['基站管理', '基站管理'], ['全部灯条', '灯条管理'], ['产品', '产品'], ['绑定关系', '绑定关系'],
-    ['灯光控制', '灯光控制'], ['Android 设备', 'Android 设备'], ['操作记录', '操作记录'], ['站点与网络', '站点与网络'],
+    ['灯光控制', '灯光控制'], ['操作记录', '操作记录'], ['站点与网络', '站点与网络'],
   ];
   for (const [link, heading] of destinations) {
     await openNavigation(page);

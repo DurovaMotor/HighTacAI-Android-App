@@ -47,10 +47,10 @@ data class PlatformAccessState(
         get() = apiAvailability == PlatformApiAvailability.AVAILABLE
 
     val isDeviceApproved: Boolean
-        get() = deviceAuthorization == PlatformDeviceAuthorization.APPROVED
+        get() = true
 
     val canWrite: Boolean
-        get() = isApiReachable && isDeviceApproved
+        get() = isApiReachable
 }
 
 enum class PlatformWriteClosedReason {

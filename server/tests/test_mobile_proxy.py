@@ -480,14 +480,16 @@ def test_jiandaoyun_proxy_rejects_non_allowlisted_path_without_upstream_call(
     assert proxy_harness.upstream.requests == []
 
 
-def test_mobile_proxy_requires_device_bearer_and_refreshes_last_seen_on_503(
+def test_mobile_proxy_allows_tokenless_access_and_refreshes_legacy_token_last_seen(
     proxy_harness: ProxyHarness,
 ) -> None:
     missing_bearer = proxy_harness.client.post(
         "/api/v1/mobile/openai/responses",
         json={"input": "hello"},
     )
-    assert missing_bearer.status_code == 401
+    assert missing_bearer.status_code == 200
+    assert missing_bearer.json() == {"ok": True}
+    proxy_harness.upstream.requests.clear()
 
     proxy_harness.settings.openai_api_key = None
     before = proxy_harness.last_seen()

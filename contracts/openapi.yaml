@@ -8,14 +8,18 @@ info:
     bindings, commands, devices, and audit records. Timestamps are RFC 3339 UTC.
 
     Admin browser requests use the `hightac_session` cookie. Every mutating
-    admin request also requires `X-CSRF-Token`. Approved Android installations
-    use bearer identity and never receive MQTT credentials. The canonical retry
-    key for retry-safe writes is the `Idempotency-Key` header; keys are scoped to
-    the authenticated principal and retained for at least 24 hours.
+    admin request also requires `X-CSRF-Token`. Android application operations
+    run in zero-registration mode on the trusted LAN: no device enrollment or
+    bearer token is required. They use a fixed anonymous Android actor for
+    audit and idempotency scope. Valid legacy device tokens remain supported
+    for per-device attribution but are optional.
 
-    Approved Android devices also use bearer-authenticated, allowlisted mobile
-    proxies for OpenAI-compatible Responses and JianDaoYun catalog reads. Third-
-    party API credentials remain server-side and are never returned to clients.
+    Tokenless Android clients may use the allowlisted mobile proxies for
+    OpenAI-compatible Responses and JianDaoYun catalog reads. Third-party API
+    credentials remain server-side and are never returned to clients. Android
+    clients never receive MQTT credentials or administrator privileges. These
+    tokenless routes are for the trusted site LAN or an authenticated VPN only
+    and must not be exposed directly to the public Internet.
   contact:
     name: HighTac Engineering
   license:
@@ -208,7 +212,6 @@ paths:
       summary: Return the current platform snapshot and operational counts.
       security:
         - AdminSession: []
-        - AndroidBearer: []
       responses:
         "200":
           description: Current dashboard snapshot.
@@ -257,9 +260,9 @@ paths:
       tags: [Broker]
       operationId: getBrokerStatus
       summary: Return Windows service, TCP, and backend MQTT status.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       responses:
         "200":
           description: Broker status snapshot.
@@ -400,10 +403,9 @@ paths:
       tags: [Stations]
       operationId: listStations
       summary: List stations using server-side filtering and pagination.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/Sort"
@@ -480,9 +482,9 @@ paths:
       tags: [Stations]
       operationId: getStation
       summary: Return station details and current connectivity state.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       responses:
         "200":
           description: Station details.
@@ -559,10 +561,9 @@ paths:
       tags: [Tags]
       operationId: listTags
       summary: List light tags using server-side filtering and pagination.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/Sort"
@@ -612,9 +613,9 @@ paths:
       tags: [Tags]
       operationId: getTag
       summary: Return a light tag, its active binding, and recent status history.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       responses:
         "200":
           description: Light tag details.
@@ -634,11 +635,9 @@ paths:
       tags: [Tags]
       operationId: registerTag
       summary: Manually register a known light tag.
-      security:
-        - AdminSession: []
-          CsrfToken: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -676,7 +675,6 @@ paths:
       summary: List tags at or below the configured low-battery threshold.
       security:
         - AdminSession: []
-        - AndroidBearer: []
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
@@ -706,7 +704,6 @@ paths:
       summary: List tags currently marked abnormal.
       security:
         - AdminSession: []
-        - AndroidBearer: []
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
@@ -734,10 +731,9 @@ paths:
       tags: [Products]
       operationId: listProducts
       summary: List products and active-binding counts.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/Sort"
@@ -823,9 +819,9 @@ paths:
       tags: [Products]
       operationId: getProduct
       summary: Return a product and all current tag bindings.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       responses:
         "200":
           description: Product details.
@@ -1035,10 +1031,9 @@ paths:
       tags: [Bindings]
       operationId: listBindings
       summary: List current or historical product-to-tag bindings.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/Sort"
@@ -1087,11 +1082,9 @@ paths:
       operationId: createBinding
       summary: Bind a tag to a product, creating the product when absent.
       description: An active binding for the tag causes 409; use the explicit rebind route to replace it.
-      security:
-        - AdminSession: []
-          CsrfToken: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -1131,16 +1124,14 @@ paths:
       tags: [Bindings]
       operationId: removeBinding
       summary: Soft-remove an active binding while retaining history.
-      security:
-        - AdminSession: []
-          CsrfToken: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/IdempotencyKey"
         - name: confirmation
           in: header
           required: false
-          description: Admin clients send UNBIND for the required confirmation dialog; approved Android clients omit it.
+          description: Admin clients send UNBIND for the required confirmation dialog; anonymous Android clients omit it.
           schema:
             type: string
             const: UNBIND
@@ -1169,11 +1160,9 @@ paths:
       tags: [Bindings]
       operationId: rebindTag
       summary: Explicitly replace the named active binding with a new product binding.
-      security:
-        - AdminSession: []
-          CsrfToken: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -1212,11 +1201,13 @@ paths:
       summary: Classify normalized legacy Android bindings without writing data.
       description: |
         The response token is stateless and integrity-protected. It is bound to
-        the approved Android device, the exact ordered normalized records, and
-        the authoritative station, tag, product, and active-binding state that
-        can affect migration. Preview never changes database state.
-      security:
-        - AndroidBearer: []
+        the request actor (the fixed anonymous Android actor when no legacy
+        token is supplied), the exact ordered normalized records, and the
+        authoritative station, tag, product, and active-binding state that can
+        affect migration. Preview never changes database state.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       requestBody:
         required: true
         content:
@@ -1255,9 +1246,9 @@ paths:
         recomputes the preview, and returns 409 MIGRATION_PREVIEW_STALE before
         any write when relevant authoritative state differs. Products, tags,
         MIGRATION bindings, audits, and the idempotency response commit once.
-      security:
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -1296,11 +1287,9 @@ paths:
         Product targets resolve to all active bindings and are partitioned into
         packets of at most 20 tags. LIGHT_ON always uses beep, flashing, and a
         five-second duration. MQTT publish produces PUBLISHED, never CONFIRMED.
-      security:
-        - AdminSession: []
-          CsrfToken: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
@@ -1368,9 +1357,9 @@ paths:
       tags: [Commands]
       operationId: getLightCommand
       summary: Return command and per-tag acknowledgement state.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       responses:
         "200":
           description: Command state. PUBLISHED means sent, not executed.
@@ -1394,11 +1383,9 @@ paths:
       tags: [Commands]
       operationId: clearStation
       summary: Create a light-off command for every actively bound tag at the station.
-      security:
-        - AdminSession: []
-          CsrfToken: []
-        - AndroidBearer: []
+      security: []
       parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: false
@@ -1438,12 +1425,13 @@ paths:
       operationId: proxyMobileOpenAiResponses
       summary: Proxy one non-streaming OpenAI-compatible Responses request.
       description: |
-        Requires an approved Android device token. The backend supplies the
-        upstream Authorization header, overwrites `model` with the configured
-        allowlisted model, and forces `stream` to false. The upstream API key is
-        never accepted from or returned to the Android client.
-      security:
-        - AndroidBearer: []
+        No Android device token is required. The backend supplies the upstream
+        Authorization header, overwrites `model` with the configured allowlisted
+        model, and forces `stream` to false. The upstream API key is never
+        accepted from or returned to the Android client.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       requestBody:
         required: true
         content:
@@ -1492,8 +1480,9 @@ paths:
       description: |
         The backend injects the upstream Authorization header and configured
         `app_id`. Client-supplied application or form identifiers are ignored.
-      security:
-        - AndroidBearer: []
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       requestBody:
         required: true
         content:
@@ -1542,8 +1531,9 @@ paths:
       description: |
         The backend injects the upstream Authorization header and overwrites
         `app_id` and `entry_id` with server-side configuration.
-      security:
-        - AndroidBearer: []
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       requestBody:
         required: true
         content:
@@ -1592,8 +1582,9 @@ paths:
       description: |
         The backend injects the upstream Authorization header and overwrites
         `app_id` and `entry_id` with server-side configuration.
-      security:
-        - AndroidBearer: []
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       requestBody:
         required: true
         content:
@@ -1697,12 +1688,14 @@ paths:
     post:
       tags: [Device enrollments]
       operationId: createDeviceEnrollment
-      summary: Create or resume an automatically authorized Android installation enrollment.
+      summary: Legacy compatibility endpoint for Android installation enrollment.
+      deprecated: true
       description: >-
         Raw ANDROID_ID and private installation key material must never be sent.
-        A fresh valid installation is authorized immediately without an
-        administrator action. A revoked enrollment remains rejected; a new
-        idempotency challenge creates a separately revocable installation.
+        Zero-registration clients do not call this endpoint. It remains for
+        older releases: a fresh valid installation is authorized immediately
+        without an administrator action. A revoked enrollment remains rejected;
+        a new idempotency challenge creates a separately revocable installation.
       security: []
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1747,7 +1740,8 @@ paths:
     get:
       tags: [Device enrollments]
       operationId: getDeviceEnrollment
-      summary: Poll enrollment state and receive an automatically authorized device token once.
+      summary: Poll legacy enrollment state and receive its device token once.
+      deprecated: true
       description: >-
         The poll secret is installation-scoped and is replaced by Android
         bearer identity after authorization. Polling automatically advances
@@ -2258,13 +2252,16 @@ paths:
       operationId: connectEventStream
       summary: Upgrade to the versioned real-time event stream.
       description: |
-        Browser clients authenticate through the admin cookie. Android clients
-        send the bearer token in the upgrade request. Messages conform to
-        `contracts/events.schema.json`. The server does not replay event history;
-        after every reconnect, clients must refresh their REST snapshots.
-      security:
-        - AdminSession: []
-        - AndroidBearer: []
+        Browser clients authenticate through the admin cookie and receive all
+        event types. Tokenless Android clients may send
+        `X-Android-Installation-Id` and receive only broker, station, tag,
+        binding, command, and system events; device identity events are not
+        exposed. Messages conform to `contracts/events.schema.json`. The server
+        does not replay event history; after every reconnect, clients must
+        refresh their REST snapshots.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/AndroidInstallationId"
       x-websocket-message-schema: ./events.schema.json
       responses:
         "101":
@@ -2310,13 +2307,25 @@ components:
       type: http
       scheme: bearer
       bearerFormat: opaque-device-token
-      description: Approved installation token stored in Android Keystore; only its hash is stored server-side.
+      description: Optional legacy installation token used only for per-device attribution; tokenless Android access is supported.
     EnrollmentPollSecret:
       type: apiKey
       in: header
       name: X-Enrollment-Secret
       description: Short-lived installation-scoped secret returned once when enrollment is created.
   parameters:
+    AndroidInstallationId:
+      name: X-Android-Installation-Id
+      in: header
+      required: false
+      description: >-
+        Optional non-secret per-installation UUID used only for Android audit
+        attribution and idempotency isolation. It is not registered or trusted
+        as authentication; requests without it remain allowed and use the
+        shared anonymous Android actor.
+      schema:
+        type: string
+        format: uuid
     Page:
       name: page
       in: query
@@ -2359,8 +2368,9 @@ components:
       required: true
       description: |
         Client-generated UUID. Reusing a key with the same method, path, actor,
-        and normalized body returns the original result. Reusing it with a
-        different request returns 409 IDEMPOTENCY_KEY_REUSED.
+        and normalized body returns the original result. Tokenless Android
+        requests share the fixed anonymous Android actor scope. Reusing a key
+        with a different request returns 409 IDEMPOTENCY_KEY_REUSED.
       schema:
         type: string
         format: uuid

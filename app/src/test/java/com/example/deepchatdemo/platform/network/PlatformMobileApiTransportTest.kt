@@ -36,7 +36,7 @@ class PlatformMobileApiTransportTest {
     }
 
     @Test
-    fun fixedRoutesUsePlatformApiBaseAndApprovedDeviceBearerOnly() {
+    fun fixedRoutesUseAnonymousPlatformAccessWithInstallationAuditHeader() {
         val transport = transportWithToken("approved-device-token")
         val expectedPaths = linkedMapOf(
             PlatformMobileApiRoute.OPENAI_RESPONSES to
@@ -56,7 +56,8 @@ class PlatformMobileApiTransportTest {
             val request = server.takeRequest()
             assertEquals("POST", request.method)
             assertEquals(expectedPath, request.path)
-            assertEquals("Bearer approved-device-token", request.getHeader("Authorization"))
+            assertNull(request.getHeader("Authorization"))
+            assertEquals(INSTALLATION_ID, request.getHeader("X-Android-Installation-Id"))
             assertEquals(
                 "application/json; charset=utf-8",
                 request.getHeader("Content-Type")
@@ -67,37 +68,28 @@ class PlatformMobileApiTransportTest {
     }
 
     @Test
-    fun missingDeviceTokenIsRejectedBeforeAnyNetworkCall() {
+    fun missingDeviceTokenStillUsesEveryMobileFeature() {
+        server.enqueue(jsonResponse("{\"ok\":true}"))
         val transport = transportWithToken(null)
 
-        val error = assertThrows(PlatformMobileAuthorizationException::class.java) {
-            transport.postJson(PlatformMobileApiRoute.OPENAI_RESPONSES, "{}")
-        }
+        val response = transport.postJson(PlatformMobileApiRoute.OPENAI_RESPONSES, "{}")
 
-        assertEquals(
-            PlatformMobileAuthorizationProblem.DEVICE_TOKEN_MISSING,
-            error.problem
-        )
-        assertTrue(error.message.orEmpty().contains("自动注册"))
-        assertEquals(0, server.requestCount)
-        assertFalse(transport.hasApprovedDeviceToken())
+        assertTrue(response.isSuccessful)
+        val request = server.takeRequest()
+        assertNull(request.getHeader("Authorization"))
+        assertEquals(INSTALLATION_ID, request.getHeader("X-Android-Installation-Id"))
+        assertTrue(transport.hasApprovedDeviceToken())
     }
 
     @Test
-    fun rejectedDeviceTokenReturnsClearApprovalError() {
+    fun legacyRejectedDeviceTokenIsNeverSent() {
         server.enqueue(MockResponse().setResponseCode(403).setBody("forbidden"))
         val transport = transportWithToken("expired-device-token")
 
-        val error = assertThrows(PlatformMobileAuthorizationException::class.java) {
-            transport.postJson(PlatformMobileApiRoute.JIANDAOYUN_DATA_LIST, "{}")
-        }
+        val response = transport.postJson(PlatformMobileApiRoute.JIANDAOYUN_DATA_LIST, "{}")
 
-        assertEquals(
-            PlatformMobileAuthorizationProblem.DEVICE_TOKEN_REJECTED,
-            error.problem
-        )
-        assertTrue(error.message.orEmpty().contains("自动重新注册"))
-        assertTrue(transport.hasApprovedDeviceToken())
+        assertEquals(403, response.statusCode)
+        assertNull(server.takeRequest().getHeader("Authorization"))
     }
 
     @Test
@@ -156,6 +148,8 @@ class PlatformMobileApiTransportTest {
         )
     }
 }
+
+private const val INSTALLATION_ID = "00000000-0000-4000-8000-000000000001"
 
 private fun jsonResponse(body: String): MockResponse = MockResponse()
     .setResponseCode(200)

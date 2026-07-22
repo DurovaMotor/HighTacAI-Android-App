@@ -9,7 +9,7 @@ from uuid import UUID
 from fastapi import Depends, Header, Query, Request
 from sqlalchemy.orm import Session
 
-from hightac_platform.auth.context import Actor
+from hightac_platform.auth.context import Actor, anonymous_android_actor
 from hightac_platform.domain.errors import (
     PasswordChangeRequiredError,
     UnauthorizedError,
@@ -62,17 +62,30 @@ def require_actor(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     authorization: Annotated[str | None, Header()] = None,
+    installation_id: Annotated[
+        UUID | None,
+        Header(alias="X-Android-Installation-Id"),
+    ] = None,
 ) -> Actor:
     runtime = get_runtime(request)
+    cookie = request.cookies.get(runtime.settings.session_cookie_name)
+    if cookie:
+        # A browser presenting an administrator cookie must authenticate as an
+        # administrator. It cannot bypass CSRF or password-change enforcement
+        # by falling through to anonymous Android access.
+        return runtime.auth_service.authenticate_session(session, cookie)
     if authorization:
         scheme, _, token = authorization.partition(" ")
         if scheme.lower() != "bearer" or not token:
             raise UnauthorizedError("Authorization header must use Bearer authentication.")
-        return runtime.device_service.authenticate_token(session, token)
-    cookie = request.cookies.get(runtime.settings.session_cookie_name)
-    if cookie:
-        return runtime.auth_service.authenticate_session(session, cookie)
-    raise UnauthorizedError("Authentication is required.")
+        try:
+            return runtime.device_service.authenticate_token(session, token)
+        except UnauthorizedError:
+            # Tokens from the former registration mode are optional. A valid
+            # token preserves per-device attribution; a stale or revoked token
+            # falls back to the same zero-registration actor as no token.
+            return anonymous_android_actor(installation_id)
+    return anonymous_android_actor(installation_id)
 
 
 def require_admin_csrf(
@@ -113,38 +126,52 @@ def require_device(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     authorization: Annotated[str | None, Header()] = None,
+    installation_id: Annotated[
+        UUID | None,
+        Header(alias="X-Android-Installation-Id"),
+    ] = None,
 ) -> Actor:
     if not authorization:
-        raise UnauthorizedError("Android bearer authentication is required.")
+        return anonymous_android_actor(installation_id)
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise UnauthorizedError(
             "Authorization header must use Bearer authentication."
         )
-    return get_runtime(request).device_service.authenticate_token(
-        session,
-        token,
-        update_last_seen=False,
-    )
+    try:
+        return get_runtime(request).device_service.authenticate_token(
+            session,
+            token,
+            update_last_seen=False,
+        )
+    except UnauthorizedError:
+        return anonymous_android_actor(installation_id)
 
 
 def require_mobile_proxy_device(
     request: Request,
     session: Annotated[Session, Depends(get_session)],
     authorization: Annotated[str | None, Header()] = None,
+    installation_id: Annotated[
+        UUID | None,
+        Header(alias="X-Android-Installation-Id"),
+    ] = None,
 ) -> Actor:
     if not authorization:
-        raise UnauthorizedError("Android bearer authentication is required.")
+        return anonymous_android_actor(installation_id)
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer" or not token:
         raise UnauthorizedError(
             "Authorization header must use Bearer authentication."
         )
-    return get_runtime(request).device_service.authenticate_token(
-        session,
-        token,
-        update_last_seen=True,
-    )
+    try:
+        return get_runtime(request).device_service.authenticate_token(
+            session,
+            token,
+            update_last_seen=True,
+        )
+    except UnauthorizedError:
+        return anonymous_android_actor(installation_id)
 
 
 def require_idempotency_key(
