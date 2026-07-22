@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import com.example.deepchatdemo.catalog.PartItem
-import com.example.deepchatdemo.config.ApiConfig
 import java.io.FileNotFoundException
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -197,7 +196,7 @@ class PriceLookupSeedImporter(
         private const val FALLBACK_ENTRY_ID = "parts_catalog_seed_v1"
 
         fun cacheEntryId(): String {
-            return ApiConfig.jiandaoYunEntryId.trim().ifBlank { FALLBACK_ENTRY_ID }
+            return FALLBACK_ENTRY_ID
         }
     }
 }

@@ -1,0 +1,11 @@
+{
+  "ID": "90A9F1234567",
+  "MAC": "AA:BB:CC:DD:EE:FF",
+  "Alias": "Dock A",
+  "ServerAddress": "192.168.1.105:1884",
+  "Parameters": ["fixture_user", "<redacted>"],
+  "Heartbeat": 20,
+  "AppVersion": "1.6.7",
+  "TotalCount": 3,
+  "SendCount": 1
+}

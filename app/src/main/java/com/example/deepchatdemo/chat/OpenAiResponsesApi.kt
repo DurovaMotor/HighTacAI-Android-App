@@ -7,30 +7,24 @@ import com.example.deepchatdemo.catalog.ScoredPartItem
 import com.example.deepchatdemo.catalog.SearchPlan
 import com.example.deepchatdemo.config.ApiConfig
 import com.example.deepchatdemo.config.ReasoningEffort
+import com.example.deepchatdemo.platform.network.PlatformMobileApiRoute
+import com.example.deepchatdemo.platform.network.PlatformMobileApiTransport
 import java.io.InterruptedIOException
 import java.io.IOException
 import java.math.BigDecimal
 import java.net.ConnectException
 import java.net.SocketTimeoutException
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Protocol
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
 class OpenAiResponsesApi(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .protocols(listOf(Protocol.HTTP_1_1))
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(150, TimeUnit.SECONDS)
-        .writeTimeout(90, TimeUnit.SECONDS)
-        .build()
+    private val transport: PlatformMobileApiTransport
 ) {
+    val hasApprovedDeviceToken: Boolean
+        get() = transport.hasApprovedDeviceToken()
+
     suspend fun sendChat(
         messages: List<ChatMessage>,
         latestImageDataUrl: String? = null,
@@ -39,13 +33,12 @@ class OpenAiResponsesApi(
         searchPlan: SearchPlan? = null,
         reasoningEffort: ReasoningEffort = ReasoningEffort.fromConfig()
     ): String = withContext(Dispatchers.IO) {
-        val apiKey = ApiConfig.apiKey.trim()
         val hasImage = !latestImageDataUrl.isNullOrBlank()
         val imageByteSize = latestImageDataUrl?.compressedImageByteSize() ?: 0
         val requestStartedAt = SystemClock.elapsedRealtime()
         Log.d(
             TAG,
-            "Request start: API key present: ${apiKey.isNotBlank()}, " +
+            "Request start: anonymousAndroidAccess=true, " +
                 "model=${ApiConfig.MODEL}, reasoningEffort=${reasoningEffort.displayName}, " +
                 "reasoningIncluded=${reasoningEffort.apiValue != null}, " +
                 "messageCount=${messages.count { !it.isLoading && !it.isError }}, " +
@@ -54,10 +47,6 @@ class OpenAiResponsesApi(
         )
 
         try {
-            if (apiKey.isBlank()) {
-                throw IllegalArgumentException(MISSING_API_KEY_MESSAGE)
-            }
-
             val requestJson = buildRequestJson(
                 model = ApiConfig.MODEL,
                 messages = messages,
@@ -68,7 +57,7 @@ class OpenAiResponsesApi(
                 maxOutputTokens = if (hasImage) IMAGE_MAX_OUTPUT_TOKENS else TEXT_MAX_OUTPUT_TOKENS,
                 reasoningEffort = reasoningEffort
             )
-            val content = executeRequest(apiKey, requestJson)
+            val content = executeRequest(requestJson)
             if (content.isNotBlank()) {
                 Log.d(
                     TAG,
@@ -89,7 +78,7 @@ class OpenAiResponsesApi(
                     maxOutputTokens = RETRY_IMAGE_MAX_OUTPUT_TOKENS,
                     reasoningEffort = reasoningEffort
                 )
-                val retryContent = executeRequest(apiKey, retryRequestJson)
+                val retryContent = executeRequest(retryRequestJson)
                 if (retryContent.isNotBlank()) {
                     Log.d(
                         TAG,
@@ -111,12 +100,12 @@ class OpenAiResponsesApi(
         }
     }
 
-    private fun executeRequest(apiKey: String, requestJson: JSONObject): String {
+    private fun executeRequest(requestJson: JSONObject): String {
         var lastError: IOException? = null
         repeat(REQUEST_ATTEMPTS) { attempt ->
             try {
                 Log.d(TAG, "HTTP attempt ${attempt + 1}/$REQUEST_ATTEMPTS start")
-                return executeSingleRequest(apiKey, requestJson)
+                return executeSingleRequest(requestJson)
             } catch (error: IOException) {
                 lastError = error
                 Log.e(
@@ -135,35 +124,25 @@ class OpenAiResponsesApi(
         throw lastError ?: IOException("Request failed.")
     }
 
-    private fun executeSingleRequest(apiKey: String, requestJson: JSONObject): String {
-        val request = Request.Builder()
-            .url(responsesUrl(ApiConfig.BASE_URL))
-            .addHeader("Authorization", "Bearer $apiKey")
-            .addHeader("Content-Type", JSON_MEDIA_TYPE)
-            .addHeader("Accept", "application/json")
-            .addHeader("User-Agent", USER_AGENT)
-            .addHeader("Origin", ApiConfig.BASE_URL.trim().trimEnd('/'))
-            .addHeader("Referer", "${ApiConfig.BASE_URL.trim().trimEnd('/')}/")
-            .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE.toMediaType()))
-            .build()
-
+    private fun executeSingleRequest(requestJson: JSONObject): String {
         val callStartedAt = SystemClock.elapsedRealtime()
-        client.newCall(request).execute().use { response ->
-            val bodyText = response.body?.string().orEmpty()
-            Log.d(
-                TAG,
-                "HTTP response: statusCode=${response.code}, elapsedMs=${callStartedAt.elapsedMs()}"
-            )
+        val response = transport.postJson(
+            route = PlatformMobileApiRoute.OPENAI_RESPONSES,
+            jsonBody = requestJson.toString()
+        )
+        Log.d(
+            TAG,
+            "HTTP response: statusCode=${response.statusCode}, elapsedMs=${callStartedAt.elapsedMs()}"
+        )
 
-            if (response.code != 200) {
-                throw IOException(readApiError(response.code, bodyText))
-            }
+        if (response.statusCode != 200) {
+            throw IOException(readApiError(response.statusCode, response.body))
+        }
 
-            return runCatching {
-                readResponseText(bodyText)
-            }.getOrElse { error ->
-                throw IOException(NO_RESPONSE_TEXT_MESSAGE, error)
-            }
+        return runCatching {
+            readResponseText(response.body)
+        }.getOrElse { error ->
+            throw IOException(NO_RESPONSE_TEXT_MESSAGE, error)
         }
     }
 
@@ -329,15 +308,6 @@ class OpenAiResponsesApi(
             .put("text", text)
     }
 
-    private fun responsesUrl(baseUrl: String): String {
-        val cleanBaseUrl = baseUrl.trim().trimEnd('/')
-        return if (cleanBaseUrl.endsWith("/v1")) {
-            "$cleanBaseUrl/responses"
-        } else {
-            "$cleanBaseUrl/v1/responses"
-        }
-    }
-
     private fun readResponseText(bodyText: String): String {
         val root = JSONObject(bodyText)
         if (!root.isNull("output_text")) {
@@ -459,20 +429,14 @@ class OpenAiResponsesApi(
 
     private companion object {
         const val TAG = "HighTacAI"
-        const val JSON_MEDIA_TYPE = "application/json; charset=utf-8"
         const val TEXT_MAX_OUTPUT_TOKENS = 1024
         const val IMAGE_MAX_OUTPUT_TOKENS = 1024
         const val RETRY_IMAGE_MAX_OUTPUT_TOKENS = 1536
         const val REQUEST_ATTEMPTS = 3
         val RETRY_DELAY_MS = longArrayOf(1500L, 4000L)
-        const val MISSING_API_KEY_MESSAGE =
-            "缺少 API Key，请在 local.properties 中配置 OPENAI_API_KEY。"
         const val HTTP_ERROR_MESSAGE =
             "HighTac AI 服务返回错误，请检查 API 配置或稍后重试。"
         const val NO_RESPONSE_TEXT_MESSAGE = "没有收到有效回复，请稍后重试。"
-        const val USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 15; HighTac AI) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
         const val RETRY_IMAGE_PROMPT =
             "请识别并描述这张摩托车配件图片。请用简体中文回答配件类型、可见细节、可能的安装位置或车型线索，并说明下一步需要确认的信息。"
         const val SYSTEM_INSTRUCTION =

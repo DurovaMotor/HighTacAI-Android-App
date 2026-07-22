@@ -1,1 +1,4 @@
 /build
+/release-signing.properties
+/*.jks
+/*.keystore

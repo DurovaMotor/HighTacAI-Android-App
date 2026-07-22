@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      Android cannot express runtime-configured RFC1918/link-local ranges here.
+      PlatformUrlValidator is the mandatory policy gate and permits HTTP only
+      for private/LAN hosts; public and other routable endpoints require HTTPS.
+    -->
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration" />
+</network-security-config>

@@ -1,0 +1,89 @@
+# Let Git detect text by default, then pin source and documentation to LF.
+* text=auto
+
+*.c text eol=lf
+*.cc text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+*.cpp text eol=lf
+*.css text eol=lf
+*.gradle text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.html text eol=lf
+*.ini text eol=lf
+*.iss text eol=lf
+*.java text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+*.kt text eol=lf
+*.kts text eol=lf
+*.lock text eol=lf
+*.md text eol=lf
+*.properties text eol=lf
+*.py text eol=lf
+*.pyi text eol=lf
+*.sh text eol=lf
+*.sql text eol=lf
+*.toml text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.txt text eol=lf
+*.xml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.svg text eol=lf
+/.gitattributes text eol=lf
+/.gitignore text eol=lf
+
+# Keep scripts consumed directly by Windows tools in native form.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.psd1 text eol=crlf
+*.psm1 text eol=crlf
+
+# Common generated artifacts and media must never undergo text conversion.
+*.7z binary
+*.aab binary
+*.aar binary
+*.apk binary
+*.avi binary
+*.db binary
+*.dll binary
+*.doc binary
+*.docx binary
+*.eot binary
+*.exe binary
+*.gif binary
+*.gz binary
+*.ico binary
+*.jar binary
+*.jpeg binary
+*.jpg binary
+*.jks binary
+*.keystore binary
+*.mov binary
+*.mp3 binary
+*.mp4 binary
+*.msi binary
+*.otf binary
+*.p12 binary
+*.pdf binary
+*.png binary
+*.ppt binary
+*.pptx binary
+*.pyc binary
+*.so binary
+*.sqlite binary
+*.sqlite3 binary
+*.ttf binary
+*.wav binary
+*.webm binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.xls binary
+*.xlsx binary
+*.zip binary

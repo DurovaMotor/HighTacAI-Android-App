@@ -4,34 +4,24 @@ import android.os.SystemClock
 import android.util.Log
 import com.example.deepchatdemo.config.ApiConfig
 import com.example.deepchatdemo.config.ReasoningEffort
+import com.example.deepchatdemo.platform.network.PlatformMobileApiRoute
+import com.example.deepchatdemo.platform.network.PlatformMobileApiTransport
 import java.io.InterruptedIOException
 import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Protocol
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 
 class SearchPlanApi(
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .protocols(listOf(Protocol.HTTP_1_1))
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .build()
+    private val transport: PlatformMobileApiTransport
 ) {
     suspend fun createSearchPlan(
         rawQuery: String,
         reasoningEffort: ReasoningEffort = ReasoningEffort.fromConfig()
     ): SearchPlan = withContext(Dispatchers.IO) {
-        val apiKey = ApiConfig.apiKey.trim()
         val startedAt = SystemClock.elapsedRealtime()
         Log.d(
             TAG,
@@ -40,13 +30,9 @@ class SearchPlanApi(
                 "reasoningIncluded=${reasoningEffort.apiValue != null}"
         )
 
-        if (apiKey.isBlank()) {
-            throw IllegalArgumentException(MISSING_API_KEY_MESSAGE)
-        }
-
         try {
             val requestJson = buildRequestJson(rawQuery, reasoningEffort)
-            val responseText = executeRequest(apiKey, requestJson)
+            val responseText = executeRequest(requestJson)
             val plan = SearchPlan.fromJson(responseText)
             Log.d(
                 TAG,
@@ -64,12 +50,12 @@ class SearchPlanApi(
         }
     }
 
-    private fun executeRequest(apiKey: String, requestJson: JSONObject): String {
+    private fun executeRequest(requestJson: JSONObject): String {
         var lastError: IOException? = null
         repeat(REQUEST_ATTEMPTS) { attempt ->
             try {
                 Log.d(TAG, "SearchPlan HTTP attempt ${attempt + 1}/$REQUEST_ATTEMPTS start")
-                return executeSingleRequest(apiKey, requestJson)
+                return executeSingleRequest(requestJson)
             } catch (error: IOException) {
                 lastError = error
                 Log.e(
@@ -87,33 +73,23 @@ class SearchPlanApi(
         throw lastError ?: IOException("SearchPlan request failed.")
     }
 
-    private fun executeSingleRequest(apiKey: String, requestJson: JSONObject): String {
-        val request = Request.Builder()
-            .url(responsesUrl(ApiConfig.BASE_URL))
-            .addHeader("Authorization", "Bearer $apiKey")
-            .addHeader("Content-Type", JSON_MEDIA_TYPE)
-            .addHeader("Accept", "application/json")
-            .addHeader("User-Agent", USER_AGENT)
-            .addHeader("Origin", ApiConfig.BASE_URL.trim().trimEnd('/'))
-            .addHeader("Referer", "${ApiConfig.BASE_URL.trim().trimEnd('/')}/")
-            .post(requestJson.toString().toRequestBody(JSON_MEDIA_TYPE.toMediaType()))
-            .build()
-
+    private fun executeSingleRequest(requestJson: JSONObject): String {
         val callStartedAt = SystemClock.elapsedRealtime()
-        client.newCall(request).execute().use { response ->
-            val bodyText = response.body?.string().orEmpty()
-            Log.d(
-                TAG,
-                "SearchPlan HTTP response: statusCode=${response.code}, " +
-                    "elapsedMs=${SystemClock.elapsedRealtime() - callStartedAt}"
-            )
-            if (response.code != 200) {
-                throw IOException(readApiError(response.code, bodyText))
-            }
-            return runCatching { readResponseText(bodyText) }
-                .getOrElse { error -> throw IOException(NO_RESPONSE_TEXT_MESSAGE, error) }
-                .ifBlank { throw IOException(NO_RESPONSE_TEXT_MESSAGE) }
+        val response = transport.postJson(
+            route = PlatformMobileApiRoute.OPENAI_RESPONSES,
+            jsonBody = requestJson.toString()
+        )
+        Log.d(
+            TAG,
+            "SearchPlan HTTP response: statusCode=${response.statusCode}, " +
+                "elapsedMs=${SystemClock.elapsedRealtime() - callStartedAt}"
+        )
+        if (response.statusCode != 200) {
+            throw IOException(readApiError(response.statusCode, response.body))
         }
+        return runCatching { readResponseText(response.body) }
+            .getOrElse { error -> throw IOException(NO_RESPONSE_TEXT_MESSAGE, error) }
+            .ifBlank { throw IOException(NO_RESPONSE_TEXT_MESSAGE) }
     }
 
     private fun buildRequestJson(
@@ -248,15 +224,6 @@ class SearchPlanApi(
             .put("text", text)
     }
 
-    private fun responsesUrl(baseUrl: String): String {
-        val cleanBaseUrl = baseUrl.trim().trimEnd('/')
-        return if (cleanBaseUrl.endsWith("/v1")) {
-            "$cleanBaseUrl/responses"
-        } else {
-            "$cleanBaseUrl/v1/responses"
-        }
-    }
-
     private fun readResponseText(bodyText: String): String {
         val root = JSONObject(bodyText)
         if (!root.isNull("output_text")) {
@@ -335,15 +302,9 @@ class SearchPlanApi(
 
     private companion object {
         const val TAG = "HighTacAI"
-        const val JSON_MEDIA_TYPE = "application/json; charset=utf-8"
         const val REQUEST_ATTEMPTS = 2
         val RETRY_DELAY_MS = longArrayOf(1200L)
         const val NO_RESPONSE_TEXT_MESSAGE = "没有收到 SearchPlan 有效回复。"
-        const val MISSING_API_KEY_MESSAGE =
-            "缺少 API Key，请在 local.properties 中配置 OPENAI_API_KEY。"
-        const val USER_AGENT =
-            "Mozilla/5.0 (Linux; Android 15; HighTac AI) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
         const val SYSTEM_INSTRUCTION =
             "你是摩托车配件公司知识库的查询规划器。请把用户问题转换成结构化 SearchPlan JSON。 " +
                 "需要提取产品编码、编码前缀、摩托车车型、品牌、中文配件名称、英文配件名称、关键词、must-have 条件和 should-have 条件。 " +

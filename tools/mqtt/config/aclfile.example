@@ -1,0 +1,7 @@
+# Minimal ACL for local HighTac MQTT smoke tests.
+# start-mosquitto.ps1 writes a generated copy with the chosen username.
+
+user hightac_mqtt
+topic readwrite /estation/#
+topic readwrite hightac/local/#
+topic read $SYS/#

@@ -1,58 +1,78 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.provider.ListProperty
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.testing.Test
 import java.util.Properties
 
+abstract class ValidateReleaseSigningTask : DefaultTask() {
+    @get:Input
+    abstract val missingValues: ListProperty<String>
+
+    @TaskAction
+    fun validateSigningConfiguration() {
+        val missing = missingValues.get()
+        if (missing.isNotEmpty()) {
+            throw GradleException(
+                "Release signing is required. Configure app/release-signing.properties " +
+                    "or HIGHTAC_RELEASE_* environment variables. Missing: " +
+                    missing.joinToString()
+            )
+        }
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 fun String.toBuildConfigString(): String {
     return "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 }
 
-val localProperties = Properties()
-val localPropertiesFile = rootProject.file("local.properties")
-if (localPropertiesFile.exists()) {
-    localPropertiesFile.inputStream().use { localProperties.load(it) }
-}
-
-val openAiApiKeyFromLocal = localProperties.getProperty("OPENAI_API_KEY").orEmpty()
-val openAiApiKeyFromEnv = providers.environmentVariable("OPENAI_API_KEY").orNull.orEmpty()
-val openAiApiKey = openAiApiKeyFromLocal.ifBlank { openAiApiKeyFromEnv }
-
-fun propertyOrEnv(name: String): String {
-    return localProperties.getProperty(name).orEmpty()
-        .ifBlank { providers.environmentVariable(name).orNull.orEmpty() }
-        .ifBlank { providers.gradleProperty(name).orNull.orEmpty() }
-        .ifBlank { windowsPersistentEnvironmentVariable(name) }
-}
-
-fun windowsPersistentEnvironmentVariable(name: String): String {
-    if (!System.getProperty("os.name").contains("Windows", ignoreCase = true)) {
-        return ""
+val releaseSigningPropertiesFile = project.file("release-signing.properties")
+val releaseSigningProperties = Properties().apply {
+    if (releaseSigningPropertiesFile.isFile) {
+        releaseSigningPropertiesFile.inputStream().use(::load)
     }
-
-    return runCatching {
-        val script = """
-            ${'$'}value = [Environment]::GetEnvironmentVariable('$name', 'User')
-            if ([string]::IsNullOrWhiteSpace(${'$'}value)) {
-                ${'$'}value = [Environment]::GetEnvironmentVariable('$name', 'Machine')
-            }
-            [Console]::Out.Write(${'$'}value)
-        """.trimIndent()
-        providers.exec {
-            commandLine("powershell", "-NoProfile", "-Command", script)
-            isIgnoreExitValue = true
-        }.standardOutput.asText.get().trim()
-    }.getOrDefault("")
 }
 
-val jiandaoYunApiKey = propertyOrEnv("JIANDAOYUN_API_KEY")
-val jiandaoYunAppId = propertyOrEnv("JIANDAOYUN_APP_ID")
-val jiandaoYunEntryId = propertyOrEnv("JIANDAOYUN_ENTRY_ID")
-val jiandaoYunBaseUrl = propertyOrEnv("JIANDAOYUN_BASE_URL")
-    .ifBlank { "https://api.jiandaoyun.com/api" }
+fun releaseSigningValue(propertyName: String, environmentName: String): String {
+    return releaseSigningProperties.getProperty(propertyName).orEmpty().trim()
+        .ifBlank { providers.environmentVariable(environmentName).orNull.orEmpty().trim() }
+}
+
+val releaseStoreFileValue = releaseSigningValue(
+    propertyName = "storeFile",
+    environmentName = "HIGHTAC_RELEASE_STORE_FILE"
+)
+val releaseStorePassword = releaseSigningValue(
+    propertyName = "storePassword",
+    environmentName = "HIGHTAC_RELEASE_STORE_PASSWORD"
+)
+val releaseKeyAlias = releaseSigningValue(
+    propertyName = "keyAlias",
+    environmentName = "HIGHTAC_RELEASE_KEY_ALIAS"
+)
+val releaseKeyPassword = releaseSigningValue(
+    propertyName = "keyPassword",
+    environmentName = "HIGHTAC_RELEASE_KEY_PASSWORD"
+)
+val releaseStoreFile = releaseStoreFileValue.takeIf(String::isNotBlank)?.let(project::file)
+val missingReleaseSigningValues = buildList {
+    if (releaseStoreFileValue.isBlank()) add("storeFile / HIGHTAC_RELEASE_STORE_FILE")
+    if (releaseStoreFileValue.isNotBlank() && releaseStoreFile?.isFile != true) {
+        add("existing release keystore file")
+    }
+    if (releaseStorePassword.isBlank()) add("storePassword / HIGHTAC_RELEASE_STORE_PASSWORD")
+    if (releaseKeyAlias.isBlank()) add("keyAlias / HIGHTAC_RELEASE_KEY_ALIAS")
+    if (releaseKeyPassword.isBlank()) add("keyPassword / HIGHTAC_RELEASE_KEY_PASSWORD")
+}
+val hasReleaseSigning = missingReleaseSigningValues.isEmpty()
 
 android {
     namespace = "com.example.deepchatdemo"
@@ -63,22 +83,16 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.deepchatdemo"
+        applicationId = "com.durovamotor.hightacai"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "OPENAI_API_KEY", openAiApiKey.toBuildConfigString())
-        buildConfigField("String", "OPENAI_BASE_URL", "https://trancloud.net".toBuildConfigString())
         buildConfigField("String", "OPENAI_MODEL", "gpt-5.5".toBuildConfigString())
         buildConfigField("String", "OPENAI_REASONING_EFFORT", "xhigh".toBuildConfigString())
-        buildConfigField("String", "JIANDAOYUN_API_KEY", jiandaoYunApiKey.toBuildConfigString())
-        buildConfigField("String", "JIANDAOYUN_APP_ID", jiandaoYunAppId.toBuildConfigString())
-        buildConfigField("String", "JIANDAOYUN_ENTRY_ID", jiandaoYunEntryId.toBuildConfigString())
-        buildConfigField("String", "JIANDAOYUN_BASE_URL", jiandaoYunBaseUrl.toBuildConfigString())
     }
 
     buildFeatures {
@@ -90,12 +104,54 @@ android {
         debug {
             applicationIdSuffix = ".next"
         }
+        release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.create("release") {
+                    storeFile = releaseStoreFile
+                    storePassword = releaseStorePassword
+                    keyAlias = releaseKeyAlias
+                    keyPassword = releaseKeyPassword
+                }
+            }
+        }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        // Keep the field-test package exactly stable so adb install -r retains its approved token.
+        variant.applicationId.set("com.example.deepchatdemo.next")
+    }
+}
+
+val validateReleaseSigning by tasks.registering(ValidateReleaseSigningTask::class) {
+    group = "verification"
+    description = "Fails release builds unless a complete HighTac signing configuration is present."
+    missingValues.set(missingReleaseSigningValues)
+}
+
+tasks.configureEach {
+    if (name == "preReleaseBuild") {
+        dependsOn(validateReleaseSigning)
+    }
+}
+
+ksp {
+    arg("room.generateKotlin", "true")
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -109,17 +165,30 @@ dependencies {
     implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.room.ktx)
+    implementation(libs.androidx.room.runtime)
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
     implementation(libs.coil.compose)
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    ksp(libs.androidx.room.compiler)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
     testImplementation(libs.junit)
+    testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.androidx.test.core)
     testImplementation("org.json:json:20240303")
+    testImplementation(libs.mockwebserver)
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.androidx.test.core)
 }
 
 tasks.withType<JavaCompile>().configureEach {

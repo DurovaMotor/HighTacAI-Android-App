@@ -118,6 +118,8 @@ import com.example.deepchatdemo.chat.ChatRole
 import com.example.deepchatdemo.chat.ChatViewModel
 import com.example.deepchatdemo.config.ReasoningEffort
 import com.example.deepchatdemo.price.PriceLookupViewModel
+import com.example.deepchatdemo.ui.light.LightFindingScreen
+import com.example.deepchatdemo.ui.light.LightFindingViewModel
 import com.example.deepchatdemo.ui.price.PriceLookupScreen
 import com.example.deepchatdemo.utils.ImageUtils
 import kotlinx.coroutines.Dispatchers
@@ -129,7 +131,8 @@ import kotlin.math.roundToInt
 
 private enum class AppMode {
     Advisor,
-    PriceLookup
+    PriceLookup,
+    LightFinding
 }
 
 @Composable
@@ -140,6 +143,9 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
     )
     val priceViewModel: PriceLookupViewModel = viewModel(
         factory = PriceLookupViewModel.factory(context)
+    )
+    val lightFindingViewModel: LightFindingViewModel = viewModel(
+        factory = LightFindingViewModel.factory(context)
     )
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -206,13 +212,16 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
                         onDragStart = { modeDragAmount = 0f },
                         onDragCancel = { modeDragAmount = 0f },
                         onDragEnd = {
-                            when {
-                                modeDragAmount <= -modeSwipeThreshold && selectedMode == AppMode.Advisor -> {
-                                    selectedMode = AppMode.PriceLookup
+                            val modes = AppMode.entries
+                            val currentIndex = selectedMode.ordinal
+                            selectedMode = when {
+                                modeDragAmount <= -modeSwipeThreshold -> {
+                                    modes.getOrElse(currentIndex + 1) { selectedMode }
                                 }
-                                modeDragAmount >= modeSwipeThreshold && selectedMode == AppMode.PriceLookup -> {
-                                    selectedMode = AppMode.Advisor
+                                modeDragAmount >= modeSwipeThreshold -> {
+                                    modes.getOrElse(currentIndex - 1) { selectedMode }
                                 }
+                                else -> selectedMode
                             }
                             modeDragAmount = 0f
                         },
@@ -232,7 +241,7 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
             HeaderBar(
                 selectedMode = selectedMode,
                 selectedReasoningEffort = viewModel.selectedReasoningEffort,
-                hasApiKey = viewModel.hasApiKey,
+                hasPlatformAccess = viewModel.hasPlatformAccess,
                 onModeSelected = { selectedMode = it },
                 onReasoningGlowIntensityChange = { reasoningEdgeGlowTarget = it },
                 onReasoningEffortSelected = viewModel::updateReasoningEffort
@@ -294,7 +303,51 @@ fun DeepChatScreen(modifier: Modifier = Modifier) {
                             onRemoveFilter = priceViewModel::removeFilter,
                             onStartSearch = priceViewModel::startSearch,
                             onRefreshSearch = priceViewModel::refreshSearch,
-                            onRetrySearch = priceViewModel::retrySearch
+                            onRetrySearch = priceViewModel::retrySearch,
+                            resolveImageUrl = priceViewModel::resolveImageUrl,
+                            lightBindingForCode = lightFindingViewModel::bindingForCode,
+                            onBindLight = { item ->
+                                lightFindingViewModel.prefillFromPrice(
+                                    itemCode = item.code,
+                                    itemName = item.nameCn.ifBlank { item.nameEn }
+                                )
+                                selectedMode = AppMode.LightFinding
+                            },
+                            onTurnOnLight = { item ->
+                                lightFindingViewModel.lightByItemCode(item.code)
+                            },
+                            onTurnOffLight = { item ->
+                                lightFindingViewModel.turnOffByItemCode(item.code)
+                            }
+                        )
+                    }
+                    AppMode.LightFinding -> {
+                        LightFindingScreen(
+                            uiState = lightFindingViewModel.uiState,
+                            modifier = Modifier.fillMaxSize(),
+                            onServerUrlChange = lightFindingViewModel::onServerUrlChange,
+                            onStationIdChange = lightFindingViewModel::onStationIdChange,
+                            onItemCodeChange = lightFindingViewModel::onItemCodeChange,
+                            onTagIdChange = lightFindingViewModel::onTagIdChange,
+                            onSaveAndConnect = lightFindingViewModel::saveAndConnect,
+                            onDisconnect = lightFindingViewModel::disconnect,
+                            onToggleSettings = lightFindingViewModel::toggleSettings,
+                            onBindCurrent = lightFindingViewModel::bindCurrent,
+                            onLightCurrentItem = lightFindingViewModel::lightByCurrentItem,
+                            onTurnOffCurrentItem = lightFindingViewModel::turnOffByCurrentItem,
+                            onTurnOffAll = lightFindingViewModel::turnOffAllBound,
+                            onUnbind = lightFindingViewModel::unbind,
+                            onSelectColor = lightFindingViewModel::selectColor,
+                            onSelectLegacyCandidate =
+                                lightFindingViewModel::selectLegacyMigrationCandidate,
+                            onConfirmLegacyMigration =
+                                lightFindingViewModel::confirmLegacyBindingMigration,
+                            onAcknowledgeLegacyConflicts =
+                                lightFindingViewModel::acknowledgeLegacyMigrationConflicts,
+                            onDismissLegacyMigration =
+                                lightFindingViewModel::dismissLegacyMigrationPreview,
+                            onScreenActiveChanged =
+                                lightFindingViewModel::onScreenActiveChanged
                         )
                     }
                 }
@@ -352,7 +405,7 @@ private fun MessageRow(message: ChatMessage) {
 private fun HeaderBar(
     selectedMode: AppMode,
     selectedReasoningEffort: ReasoningEffort,
-    hasApiKey: Boolean,
+    hasPlatformAccess: Boolean,
     onModeSelected: (AppMode) -> Unit,
     onReasoningGlowIntensityChange: (Float) -> Unit,
     onReasoningEffortSelected: (ReasoningEffort) -> Unit
@@ -392,7 +445,7 @@ private fun HeaderBar(
         Spacer(Modifier.height(10.dp))
         ModeSwitch(
             selectedMode = selectedMode,
-            hasApiKey = hasApiKey,
+            hasPlatformAccess = hasPlatformAccess,
             onModeSelected = onModeSelected
         )
     }
@@ -1256,12 +1309,12 @@ private fun ReasoningDepthOptionRow(
 @Composable
 private fun ModeSwitch(
     selectedMode: AppMode,
-    hasApiKey: Boolean,
+    hasPlatformAccess: Boolean,
     onModeSelected: (AppMode) -> Unit
 ) {
     GlassPanel(
         modifier = Modifier
-            .width(208.dp)
+            .width(282.dp)
             .height(46.dp),
         shape = RoundedCornerShape(26.dp),
         contentPadding = PaddingValues(4.dp),
@@ -1275,7 +1328,7 @@ private fun ModeSwitch(
             ModeSwitchOption(
                 text = stringResource(R.string.mode_advisor),
                 selected = selectedMode == AppMode.Advisor,
-                statusColor = if (hasApiKey) Color(0xFF20C657) else Color(0xFFFFB23E),
+                statusColor = if (hasPlatformAccess) Color(0xFF20C657) else Color(0xFFFFB23E),
                 modifier = Modifier.weight(1f),
                 onClick = { onModeSelected(AppMode.Advisor) }
             )
@@ -1285,6 +1338,13 @@ private fun ModeSwitch(
                 statusColor = Color(0xFF20C657),
                 modifier = Modifier.weight(1f),
                 onClick = { onModeSelected(AppMode.PriceLookup) }
+            )
+            ModeSwitchOption(
+                text = "寻物",
+                selected = selectedMode == AppMode.LightFinding,
+                statusColor = Color(0xFF39C8E6),
+                modifier = Modifier.weight(1f),
+                onClick = { onModeSelected(AppMode.LightFinding) }
             )
         }
     }
@@ -1341,7 +1401,7 @@ private fun ModeSwitchOption(
 }
 
 @Composable
-private fun ApiConnectedPill(hasApiKey: Boolean) {
+private fun ApiConnectedPill(hasPlatformAccess: Boolean) {
     GlassPanel(
         modifier = Modifier.height(46.dp),
         shape = RoundedCornerShape(28.dp),
@@ -1354,14 +1414,14 @@ private fun ApiConnectedPill(hasApiKey: Boolean) {
                 modifier = Modifier
                     .size(12.dp)
                     .clip(CircleShape)
-                    .background(if (hasApiKey) Color(0xFF20C657) else Color(0xFFFFB23E))
+                    .background(if (hasPlatformAccess) Color(0xFF20C657) else Color(0xFFFFB23E))
             )
             Spacer(Modifier.width(12.dp))
             Text(
-                text = if (hasApiKey) {
+                text = if (hasPlatformAccess) {
                     stringResource(R.string.hightac_connected)
                 } else {
-                    stringResource(R.string.hightac_key_missing)
+                    stringResource(R.string.hightac_connecting)
                 },
                 color = LiquidColors.Ink,
                 fontSize = 16.sp,
@@ -1380,7 +1440,7 @@ private fun ApiConnectedPill(hasApiKey: Boolean) {
                 Icon(
                     Icons.Rounded.Check,
                     contentDescription = null,
-                    tint = if (hasApiKey) Color(0xFF7182B0) else Color(0xFFFFA000),
+                    tint = if (hasPlatformAccess) Color(0xFF7182B0) else Color(0xFFFFA000),
                     modifier = Modifier.size(21.dp)
                 )
             }

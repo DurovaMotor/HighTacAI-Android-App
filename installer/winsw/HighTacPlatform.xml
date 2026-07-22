@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<service>
+  <id>HighTacPlatform</id>
+  <name>HighTac Platform</name>
+  <description>HighTac LAN management API and web application.</description>
+  <executable>%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe</executable>
+  <arguments>-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;%BASE%\..\tools\Start-HighTacPlatformService.ps1&quot;</arguments>
+  <workingdirectory>%ProgramData%\HighTac\Platform\config</workingdirectory>
+  <startmode>Automatic</startmode>
+  <depend>Tcpip</depend>
+  <stoptimeout>15 sec</stoptimeout>
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="restart" delay="30 sec" />
+  <onfailure action="restart" delay="60 sec" />
+  <resetfailure>1 hour</resetfailure>
+  <serviceaccount>
+    <username>LocalSystem</username>
+  </serviceaccount>
+  <logpath>%ProgramData%\HighTac\Platform\logs</logpath>
+  <log mode="roll-by-size-time">
+    <sizeThreshold>20480</sizeThreshold>
+    <pattern>yyyyMMdd</pattern>
+    <autoRollAtTime>00:00:00</autoRollAtTime>
+    <zipOlderThanNumDays>7</zipOlderThanNumDays>
+    <zipDateFormat>yyyyMMdd</zipDateFormat>
+  </log>
+</service>

@@ -20,14 +20,77 @@ secrets.properties
 *.keystore
 *.p12
 *.pem
+*.pfx
+*.key
 
 phone-*.png
+/artifacts-phone-*.png
+/hightac-*.png
+/hightac-*.xml
 price_lookup_cache_from_phone.json
 project.private.config.json
 .qa/
 apk_analysis/
 
+# Unrelated local desktop utility and generated output
+/DesktopFileOrganizer.spec
+/desktop_file_organizer.py
+/dist/
+
 miniprogram/
 project.config.json
 miniprogram/utils/runtimeSecrets.js
 miniprogram/**/*.map
+
+# HighTac local platform: Python tooling and server build output
+server/.venv/
+server/.pytest_cache/
+/.pytest_cache/
+server/.mypy_cache/
+server/.ruff_cache/
+server/.coverage
+server/htmlcov/
+server/dist/
+server/*.egg-info/
+server/**/__pycache__/
+server/**/*.py[cod]
+contracts/.venv/
+contracts/__pycache__/
+contracts/**/*.py[cod]
+tools/__pycache__/
+tools/**/*.py[cod]
+pytest-cache-files-*/
+
+# HighTac local platform: Web tooling and browser test output
+web/node_modules/
+web/dist/
+web/coverage/
+web/.vite/
+web/playwright-report/
+web/test-results/
+.playwright-cli/
+output/playwright/
+
+# HighTac local platform: packaging inputs and generated installers
+installer/vendor/
+installer/build/
+installer/output/
+installer/**/*.exe
+installer/**/*.msi
+
+# HighTac local platform: runtime state and credentials
+server/runtime/
+server/data/
+server/logs/
+server/backups/
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.sqlite
+**/*.sqlite3
+**/*.log
+**/*.pid
+**/passwordfile
+**/password_file
+**/tokenfile
+**/tokens.json

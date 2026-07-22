@@ -3,15 +3,32 @@ package com.example.deepchatdemo.price
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import com.example.deepchatdemo.platform.config.SharedPreferencesPlatformConfigStore
+import com.example.deepchatdemo.platform.network.AndroidPlatformMobileApiTransportFactory
+import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 
 class PriceLookupRepository(
-    private val jiandaoYunPriceApi: JianDaoYunPriceApi = JianDaoYunPriceApi(),
+    private val jiandaoYunPriceApi: JianDaoYunPriceApi,
     private val cacheStore: PriceLookupCacheStore? = null,
-    private val seedImporter: PriceLookupSeedImporter? = null
+    private val seedImporter: PriceLookupSeedImporter? = null,
+    private val imageUrlLookup: suspend (itemId: String, code: String) -> String =
+        jiandaoYunPriceApi::fetchFreshImageUrl,
+    private val elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime
 ) {
+    private val imageRequestSemaphore = Semaphore(MAX_CONCURRENT_IMAGE_REQUESTS)
+    private val imageStateMutex = Mutex()
+    private val imageUrlCache = mutableMapOf<ImageLookupKey, ImageUrlCacheEntry>()
+    private val imageRequestsInFlight =
+        mutableMapOf<ImageLookupKey, CompletableDeferred<String>>()
+
     suspend fun prepareLocalCache(): PriceLookupCacheStatus? = withContext(Dispatchers.IO) {
         val store = cacheStore ?: return@withContext null
         val snapshot = seedImporter?.ensureImported(store)
@@ -110,6 +127,56 @@ class PriceLookupRepository(
         )
     }
 
+    suspend fun resolveImageUrl(
+        item: PriceLookupResult,
+        forceRefresh: Boolean = false
+    ): String {
+        val normalizedCode = item.code.normalizeCompact()
+        if (normalizedCode.isBlank()) return ""
+        val key = ImageLookupKey(
+            itemId = item.id.trim(),
+            normalizedCode = normalizedCode
+        )
+        val now = elapsedRealtimeMs()
+        var ownsRequest = false
+        val request = imageStateMutex.withLock {
+            imageUrlCache.entries.removeAll { (_, entry) -> !entry.isFresh(now) }
+            if (!forceRefresh) {
+                imageUrlCache[key]?.takeIf { entry -> entry.isFresh(now) }
+                    ?.let { entry -> return entry.imageUrl }
+            } else {
+                imageUrlCache.remove(key)
+            }
+
+            imageRequestsInFlight[key] ?: CompletableDeferred<String>().also { created ->
+                imageRequestsInFlight[key] = created
+                ownsRequest = true
+            }
+        }
+        if (!ownsRequest) return request.await()
+
+        return try {
+            val imageUrl = imageRequestSemaphore.withPermit {
+                imageUrlLookup(item.id, item.code)
+            }
+            imageStateMutex.withLock {
+                imageUrlCache[key] = ImageUrlCacheEntry(
+                    imageUrl = imageUrl,
+                    resolvedAtElapsedMs = elapsedRealtimeMs()
+                )
+                imageRequestsInFlight.remove(key)
+            }
+            request.complete(imageUrl)
+            imageUrl
+        } catch (error: Throwable) {
+            imageStateMutex.withLock {
+                imageRequestsInFlight.remove(key)
+            }
+            request.completeExceptionally(error)
+            throw error
+        }
+    }
+
     private suspend fun loadRefreshFallback(
         filters: List<PriceFilterCondition>,
         onProgress: suspend (results: List<PriceLookupResult>, pageCount: Int, fetchedRowCount: Int) -> Unit,
@@ -138,10 +205,16 @@ class PriceLookupRepository(
     companion object {
         fun fromContext(context: Context): PriceLookupRepository {
             val appContext = context.applicationContext
-            val cacheStore = PriceLookupCacheStore(appContext)
+            val imageUrlResolver = PlatformImageUrlResolver(
+                SharedPreferencesPlatformConfigStore(appContext)
+            )
+            val cacheStore = PriceLookupCacheStore(appContext, imageUrlResolver)
+            val transport = AndroidPlatformMobileApiTransportFactory.create(appContext)
             return PriceLookupRepository(
                 jiandaoYunPriceApi = JianDaoYunPriceApi(
-                    cacheStore = cacheStore
+                    transport = transport,
+                    cacheStore = cacheStore,
+                    imageUrlResolver = imageUrlResolver
                 ),
                 cacheStore = cacheStore,
                 seedImporter = PriceLookupSeedImporter(appContext)
@@ -149,8 +222,26 @@ class PriceLookupRepository(
         }
 
         const val TAG = "HighTacAI"
+        private const val MAX_CONCURRENT_IMAGE_REQUESTS = 4
     }
 }
+
+private data class ImageLookupKey(
+    val itemId: String,
+    val normalizedCode: String
+)
+
+private data class ImageUrlCacheEntry(
+    val imageUrl: String,
+    val resolvedAtElapsedMs: Long
+) {
+    fun isFresh(nowElapsedMs: Long): Boolean {
+        val ageMs = nowElapsedMs - resolvedAtElapsedMs
+        return ageMs in 0 until IMAGE_URL_CACHE_TTL_MS
+    }
+}
+
+private const val IMAGE_URL_CACHE_TTL_MS = 10_000L
 
 private fun PriceLookupSearchResult.withRefreshFailureLabel(): PriceLookupSearchResult {
     return copy(sourceLabel = "$sourceLabel · 实时刷新失败")
@@ -158,7 +249,6 @@ private fun PriceLookupSearchResult.withRefreshFailureLabel(): PriceLookupSearch
 
 private fun Throwable.canUseRefreshFallback(): Boolean {
     return when (this) {
-        is JianDaoYunPriceApi.JianDaoYunConfigException -> false
         is JianDaoYunPriceApi.JianDaoYunHttpException -> isTransient
         is IOException -> true
         else -> false

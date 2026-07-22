@@ -1,0 +1,20 @@
+{
+  "ID": "90A9F1234567",
+  "TotalCount": 2,
+  "SendCount": 1,
+  "Results": [
+    {
+      "TagID": "AD100000048F",
+      "Version": "1.6.7",
+      "ResultType": 254,
+      "RfPowerSend": -256,
+      "RfPowerRecv": -70,
+      "Battery": 30,
+      "Colors": [
+        {"R": true, "G": false, "B": false}
+      ],
+      "Group": 10,
+      "Sequence": 7
+    }
+  ]
+}

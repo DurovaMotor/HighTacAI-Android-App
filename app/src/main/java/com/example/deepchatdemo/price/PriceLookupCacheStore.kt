@@ -1,27 +1,53 @@
 package com.example.deepchatdemo.price
 
 import android.content.Context
+import com.example.deepchatdemo.platform.config.SharedPreferencesPlatformConfigStore
+import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
 class PriceLookupCacheStore internal constructor(
-    private val cacheFile: File
+    private val cacheFile: File,
+    private val imageUrlResolver: PlatformImageUrlResolver? = null
 ) {
     constructor(context: Context) : this(
-        File(context.applicationContext.filesDir, CACHE_FILE_NAME)
+        context = context,
+        imageUrlResolver = PlatformImageUrlResolver(
+            SharedPreferencesPlatformConfigStore(context.applicationContext)
+        )
+    )
+
+    internal constructor(
+        context: Context,
+        imageUrlResolver: PlatformImageUrlResolver
+    ) : this(
+        cacheFile = File(context.applicationContext.filesDir, CACHE_FILE_NAME),
+        imageUrlResolver = imageUrlResolver
     )
 
     fun load(entryId: String): PriceLookupCachedSnapshot? {
         if (!cacheFile.exists()) return null
 
-        return loadSnapshotFromJsonText(
+        val snapshot = parseSnapshotFromJsonText(
             text = cacheFile.readText(Charsets.UTF_8),
             expectedEntryId = entryId
-        )
+        ) ?: return null
+        val durableSnapshot = snapshot.withoutImageUrls()
+        if (durableSnapshot != snapshot) {
+            runCatching { save(durableSnapshot) }
+        }
+        return durableSnapshot
     }
 
     fun loadSnapshotFromJsonText(
+        text: String,
+        expectedEntryId: String? = null
+    ): PriceLookupCachedSnapshot? {
+        return parseSnapshotFromJsonText(text, expectedEntryId)?.withoutImageUrls()
+    }
+
+    private fun parseSnapshotFromJsonText(
         text: String,
         expectedEntryId: String? = null
     ): PriceLookupCachedSnapshot? {
@@ -44,9 +70,10 @@ class PriceLookupCacheStore internal constructor(
     }
 
     fun save(snapshot: PriceLookupCachedSnapshot) {
+        val durableSnapshot = snapshot.withoutImageUrls()
         cacheFile.parentFile?.mkdirs()
         val tmpFile = File(cacheFile.parentFile, "${cacheFile.name}.tmp")
-        tmpFile.writeText(snapshot.toJson().toString(), Charsets.UTF_8)
+        tmpFile.writeText(durableSnapshot.toJson().toString(), Charsets.UTF_8)
 
         if (cacheFile.exists() && !cacheFile.delete()) {
             tmpFile.delete()
@@ -78,7 +105,6 @@ class PriceLookupCacheStore internal constructor(
     private fun PriceLookupResult.toJson(): JSONObject {
         return JSONObject()
             .put("id", id)
-            .put("image_url", imageUrl)
             .put("code", code)
             .put("name_cn", nameCn)
             .put("name_en", nameEn)
@@ -101,6 +127,15 @@ class PriceLookupCacheStore internal constructor(
             .put("field_values", fieldValues.toJsonObject())
             .put("search_values", searchValues.toJsonObject())
             .put("raw_details", rawDetails.toJsonArray())
+    }
+
+    private fun PriceLookupCachedSnapshot.withoutImageUrls(): PriceLookupCachedSnapshot {
+        if (results.none { it.imageUrl.isNotBlank() }) return this
+
+        val durableResults = results.map { result ->
+            if (result.imageUrl.isBlank()) result else result.copy(imageUrl = "")
+        }
+        return copy(results = durableResults)
     }
 
     private fun JSONArray.toLookupResults(): List<PriceLookupResult> {

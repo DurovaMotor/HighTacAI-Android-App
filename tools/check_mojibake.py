@@ -1,24 +1,83 @@
 #!/usr/bin/env python3
-"""Scan source assets for common Chinese mojibake markers."""
+"""Scan Git candidate source files for common Chinese mojibake markers."""
 
 from __future__ import annotations
 
+import argparse
+from collections.abc import Sequence
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSIONS = {
-    ".kt",
-    ".xml",
-    ".kts",
-    ".properties",
-    ".md",
-    ".py",
+    ".c",
+    ".cc",
+    ".cfg",
+    ".cmd",
+    ".conf",
+    ".cpp",
+    ".css",
+    ".gradle",
+    ".h",
+    ".hpp",
+    ".html",
+    ".ini",
+    ".iss",
+    ".java",
+    ".js",
     ".json",
     ".jsonl",
+    ".kt",
+    ".kts",
+    ".md",
+    ".properties",
+    ".ps1",
+    ".psd1",
+    ".psm1",
+    ".py",
+    ".pyi",
+    ".sh",
+    ".sql",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
 }
-SKIP_DIRS = {".git", ".gradle", ".idea", "build"}
+SOURCE_FILENAMES = {
+    ".gitattributes",
+    ".gitignore",
+    "dockerfile",
+    "gradlew",
+}
+SKIP_DIRS = {
+    ".git",
+    ".gradle",
+    ".idea",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    ".venv-build",
+    "__pycache__",
+    "build",
+    "coverage",
+    "dist",
+    "htmlcov",
+    "node_modules",
+    "out",
+    "output",
+    "playwright-report",
+    "runtime",
+    "test-results",
+    "venv",
+}
 
 HIGH_CONFIDENCE_PATTERNS = [
     ("replacement character", "\ufffd"),
@@ -32,14 +91,14 @@ HIGH_CONFIDENCE_PATTERNS = [
     ("latin1 mojibake marker", "\u00c3"),
     ("latin1 mojibake marker", "\u00c2"),
 ]
-SINGLE_CHAR_MARKERS = {
+SINGLE_CHAR_MARKERS = (
+    "\u00e4",
     "\u00e5",
     "\u00e6",
     "\u00e7",
-    "\u00e9",
-    "\u00e4",
     "\u00e8",
-}
+    "\u00e9",
+)
 MOJIBAKE_TAIL_MARKERS = {
     "\u00a0",
     "\u00a1",
@@ -81,6 +140,10 @@ MOJIBAKE_TAIL_MARKERS = {
 }
 
 
+class CandidateDiscoveryError(RuntimeError):
+    """Raised when source candidates cannot be enumerated safely."""
+
+
 @dataclass(frozen=True)
 class Finding:
     path: Path
@@ -89,11 +152,122 @@ class Finding:
     snippet: str
 
 
-def should_scan(path: Path) -> bool:
-    if path.suffix.lower() not in EXTENSIONS:
+def _force_utf8_console() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (AttributeError, OSError, ValueError):
+            pass
+
+
+def _path_sort_key(path: Path) -> tuple[str, str]:
+    value = path.as_posix()
+    return value.casefold(), value
+
+
+def _relative_directory_parts(path: Path, root: Path) -> tuple[str, ...]:
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+        return relative.parts[:-1]
+    except ValueError:
+        return path.resolve().parts[:-1]
+
+
+def should_scan(path: Path, root: Path = ROOT) -> bool:
+    directory_parts = _relative_directory_parts(path, root)
+    if any(part.casefold() in SKIP_DIRS for part in directory_parts):
         return False
-    relative_parts = path.relative_to(ROOT).parts
-    return not any(part in SKIP_DIRS for part in relative_parts)
+    return (
+        path.name.casefold() in SOURCE_FILENAMES
+        or path.suffix.casefold() in EXTENSIONS
+    )
+
+
+def _is_binary(path: Path) -> bool:
+    with path.open("rb") as file:
+        return b"\x00" in file.read(8192)
+
+
+def git_candidate_paths(root: Path = ROOT) -> list[Path]:
+    command = [
+        "git",
+        "-C",
+        str(root),
+        "ls-files",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, check=False)
+    except OSError as error:
+        raise CandidateDiscoveryError("unable to execute Git") from error
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        message = f"Git candidate discovery failed with exit code {result.returncode}"
+        raise CandidateDiscoveryError(f"{message}: {detail}" if detail else message)
+
+    resolved_root = root.resolve()
+    candidates: set[Path] = set()
+    for raw_path in result.stdout.split(b"\x00"):
+        if not raw_path:
+            continue
+        try:
+            relative = Path(raw_path.decode("utf-8"))
+        except UnicodeDecodeError as error:
+            raise CandidateDiscoveryError(
+                "Git returned a path that is not valid UTF-8"
+            ) from error
+        path = (resolved_root / relative).resolve()
+        try:
+            path.relative_to(resolved_root)
+        except ValueError:
+            continue
+        if path.is_file() and should_scan(path, resolved_root):
+            candidates.add(path)
+    return sorted(candidates, key=_path_sort_key)
+
+
+def _walk_explicit_root(path: Path, repository_root: Path) -> list[Path]:
+    if not path.exists():
+        raise CandidateDiscoveryError(f"explicit path does not exist: {path}")
+    if path.is_file():
+        return [path] if should_scan(path, repository_root) else []
+    if not path.is_dir():
+        return []
+
+    candidates: list[Path] = []
+    for current, directories, filenames in os.walk(path, followlinks=False):
+        directories[:] = sorted(
+            (
+                name
+                for name in directories
+                if name.casefold() not in SKIP_DIRS
+            ),
+            key=str.casefold,
+        )
+        current_path = Path(current)
+        for filename in sorted(filenames, key=str.casefold):
+            candidate = current_path / filename
+            if candidate.is_file() and should_scan(candidate, repository_root):
+                candidates.append(candidate.resolve())
+    return candidates
+
+
+def discover_candidate_paths(
+    root: Path = ROOT,
+    explicit_roots: Sequence[Path] = (),
+) -> list[Path]:
+    if not explicit_roots:
+        return git_candidate_paths(root)
+
+    candidates: set[Path] = set()
+    for supplied_path in explicit_roots:
+        path = supplied_path if supplied_path.is_absolute() else root / supplied_path
+        candidates.update(_walk_explicit_root(path.resolve(), root.resolve()))
+    return sorted(candidates, key=_path_sort_key)
 
 
 def suspicious_single_markers(line: str) -> list[str]:
@@ -119,12 +293,17 @@ def scan_line(path: Path, line_number: int, line: str) -> list[Finding]:
     singleton_hits = suspicious_single_markers(line)
     if singleton_hits:
         display = " ".join(f"U+{ord(marker):04X}" for marker in singleton_hits)
-        findings.append(Finding(path, line_number, f"suspicious latin-1 marker {display}", snippet))
+        findings.append(
+            Finding(path, line_number, f"suspicious latin-1 marker {display}", snippet)
+        )
 
     return findings
 
 
 def scan_file(path: Path) -> list[Finding]:
+    if _is_binary(path):
+        return []
+
     findings: list[Finding] = []
     with path.open("rb") as file:
         for line_number, raw_line in enumerate(file, start=1):
@@ -144,17 +323,61 @@ def scan_file(path: Path) -> list[Finding]:
     return findings
 
 
-def main() -> int:
-    findings: list[Finding] = []
-    for path in sorted(ROOT.rglob("*")):
-        if path.is_file() and should_scan(path):
-            findings.extend(scan_file(path))
+def _display_path(path: Path, root: Path) -> str:
+    try:
+        return path.relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
 
+
+def main(argv: Sequence[str] | None = None) -> int:
+    _force_utf8_console()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "paths",
+        nargs="*",
+        type=Path,
+        help="Explicit files or directories to scan instead of Git candidates.",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        candidates = discover_candidate_paths(ROOT, args.paths)
+    except CandidateDiscoveryError as error:
+        print(f"Mojibake scan setup failed: {error}", file=sys.stderr)
+        return 2
+
+    findings: list[Finding] = []
+    for path in candidates:
+        try:
+            findings.extend(scan_file(path))
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            display_path = _display_path(path, ROOT)
+            print(
+                f"Mojibake scan failed for {display_path}: {error}",
+                file=sys.stderr,
+            )
+            return 2
+
+    findings.sort(
+        key=lambda finding: (
+            _display_path(finding.path, ROOT).casefold(),
+            _display_path(finding.path, ROOT),
+            finding.line_number,
+            finding.reason,
+            finding.snippet,
+        )
+    )
     if findings:
         print("Possible mojibake found:")
         for finding in findings:
-            relative = finding.path.relative_to(ROOT)
-            print(f"{relative}:{finding.line_number}: {finding.reason}: {finding.snippet}")
+            relative = _display_path(finding.path, ROOT)
+            print(
+                f"{relative}:{finding.line_number}: "
+                f"{finding.reason}: {finding.snippet}"
+            )
         return 1
 
     print("No mojibake markers found.")

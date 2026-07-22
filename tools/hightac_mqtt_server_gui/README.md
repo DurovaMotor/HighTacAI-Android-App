@@ -1,0 +1,74 @@
+# HighTac MQTT Server Setup
+
+这是一个给 Windows 电脑使用的 HighTac 声光寻物 MQTT 服务器一键配置工具。
+
+## 文件
+
+- `dist/HighTacMqttServerSetup.exe`：可直接复制到其他 Windows 电脑运行的 GUI 程序。
+- `hightac_mqtt_server_gui.py`：Python 源码，内置轻量 MQTT 3.1.1 Broker。
+- `HighTacMqttServerSetup.spec`：PyInstaller 打包配置。
+
+## 使用步骤
+
+1. 将 `dist/HighTacMqttServerSetup.exe` 复制到要作为 MQTT 服务器的 Windows 电脑。
+2. 建议右键“以管理员身份运行”，这样软件可以自动添加 Windows 防火墙入站规则。
+3. 确认界面中的本机 `Broker地址` 是和基站、手机处于同一局域网的 IP。
+4. 点击“一键启动服务器”。
+5. 将界面输出的以下信息填写到 HighTac App：
+   - 基站SN
+   - Broker地址
+   - 端口
+   - 用户名
+   - 密码
+   - TLS/SSL 关闭
+6. 将同一套 MQTT 信息填写到基站内置管理页：
+   - MQTT服务器地址和端口：`Broker地址:端口`
+   - 用户名
+   - 密码
+   - TLS/SSL 关闭
+
+## 默认配置
+
+- 基站SN：`90A9F7301427`
+- 当前现场 Wi-Fi：`Durova-5G`
+- 当前现场 Broker 地址：`192.168.1.105`
+- 端口：`1884`
+- 用户名和密码：每次启动程序时安全随机生成；源码、文档和 Git 不提供默认凭据
+- TLS/SSL：关闭
+
+生成的凭据只显示在配置区中，供复制到 App 和基站；运行日志不记录用户名、密码或 MQTT 消息正文。需要轮换时，关闭并重新启动程序即可生成新凭据。
+
+## 构建
+
+发布版本：`1.1.0`
+
+已验证构建环境：CPython `3.12.13`（64 位）、PyInstaller `6.21.0`、Tcl/Tk `8.6.12`。在本目录使用 PowerShell 构建：
+
+```powershell
+$basePython = 'C:\Users\ooo\AppData\Roaming\uv\python\cpython-3.12.13-windows-x86_64-none\python.exe'
+& $basePython -m venv .venv-build
+$python = '.\.venv-build\Scripts\python.exe'
+& $python -m pip install --disable-pip-version-check PyInstaller==6.21.0
+$env:PYTHONHASHSEED = '0'
+$env:SOURCE_DATE_EPOCH = '1784246400'
+& $python -m PyInstaller --clean --noconfirm HighTacMqttServerSetup.spec
+```
+
+运行测试和无界面冒烟检查：
+
+```powershell
+& $python -m unittest discover -s tests -v
+$process = Start-Process -FilePath '.\dist\HighTacMqttServerSetup.exe' -ArgumentList '--smoke-test' -Wait -PassThru
+$process.ExitCode
+```
+
+发布文件 SHA-256：`CF78F8E8ADF4008B1AC0D05A292296068BF0F50870A97875CF80A68173844FAF`（相同环境连续两次干净构建一致）。
+
+## 注意
+
+- 软件窗口关闭后，内置 MQTT 服务器也会停止。
+- 如果基站或手机连不上，优先检查 Windows 防火墙、电脑 IP 是否选对、基站和手机是否在同一个路由器/局域网下。
+- 如果 `1884` 端口被占用，可以改成其他端口，但 App 和基站必须填同一个端口。
+- `192.168.1.105` 是当前 `Durova-5G` 的静态地址。切换其他 Wi-Fi 时应恢复 DHCP 或按新网段重配静态地址，并在软件、App 和基站中选择同一个新地址。
+- 软件检测到多个网卡时，会优先选择当前现场的 `192.168.1.105`，其次选择 `192.168.x.x`；启动前仍应核对界面地址对应实际 Wi-Fi 网卡。
+- 当前 `Durova-5G` 在 Windows 中被识别为 `Public`，已有防火墙规则适用于所有 Profile。确认现场网络可信后，建议改为 `Private` 并将 1884 入站规则收窄到 `Private`；切换到不受信任 Wi-Fi 前应停止服务器并禁用规则。

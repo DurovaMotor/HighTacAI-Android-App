@@ -1,0 +1,12 @@
+# Rendered at install time. Usernames and station ID are placeholders, not secrets.
+user __MQTT_PLATFORM_USERNAME__
+topic readwrite /estation/#
+topic read $SYS/broker/clients/connected
+topic read $SYS/broker/uptime
+
+user __MQTT_STATION_USERNAME__
+topic read /estation/__STATION_ID__/task
+topic read /estation/__STATION_ID__/bind
+topic read /estation/__STATION_ID__/group
+topic write /estation/__STATION_ID__/heartbeat
+topic write /estation/__STATION_ID__/result

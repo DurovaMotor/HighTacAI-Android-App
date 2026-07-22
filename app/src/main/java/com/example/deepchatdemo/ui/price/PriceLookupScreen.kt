@@ -13,12 +13,24 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.ImageLoader
+import com.example.deepchatdemo.light.domain.LightBinding
+import com.example.deepchatdemo.platform.config.SharedPreferencesPlatformConfigStore
+import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
+import com.example.deepchatdemo.platform.network.newPlatformImageHttpClient
 import com.example.deepchatdemo.price.PriceFilterColumn
+import com.example.deepchatdemo.price.PriceLookupResult
 import com.example.deepchatdemo.price.PriceLookupUiState
 
 @Composable
@@ -31,8 +43,27 @@ fun PriceLookupScreen(
     onRemoveFilter: (String) -> Unit,
     onStartSearch: () -> Unit,
     onRefreshSearch: () -> Unit,
-    onRetrySearch: () -> Unit
+    onRetrySearch: () -> Unit,
+    resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
+    lightBindingForCode: (String) -> LightBinding?,
+    onBindLight: (PriceLookupResult) -> Unit,
+    onTurnOnLight: (PriceLookupResult) -> Unit,
+    onTurnOffLight: (PriceLookupResult) -> Unit
 ) {
+    var selectedResult by remember { mutableStateOf<PriceLookupResult?>(null) }
+    val applicationContext = LocalContext.current.applicationContext
+    val imageUrlResolver = remember(applicationContext) {
+        PlatformImageUrlResolver(SharedPreferencesPlatformConfigStore(applicationContext))
+    }
+    val imageLoader = remember(applicationContext, imageUrlResolver) {
+        ImageLoader.Builder(applicationContext)
+            .okHttpClient { newPlatformImageHttpClient(imageUrlResolver) }
+            .build()
+    }
+    DisposableEffect(imageLoader) {
+        onDispose(imageLoader::shutdown)
+    }
+
     Column(
         modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -42,7 +73,15 @@ fun PriceLookupScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            onRetrySearch = onRetrySearch
+            imageUrlResolver = imageUrlResolver,
+            imageLoader = imageLoader,
+            resolveImageUrl = resolveImageUrl,
+            onRetrySearch = onRetrySearch,
+            onOpenDetail = { selectedResult = it },
+            lightBindingForCode = lightBindingForCode,
+            onBindLight = onBindLight,
+            onTurnOnLight = onTurnOnLight,
+            onTurnOffLight = onTurnOffLight
         )
         Spacer(Modifier.height(12.dp))
         PriceFilterArea(
@@ -55,13 +94,31 @@ fun PriceLookupScreen(
             onRefreshSearch = onRefreshSearch
         )
     }
+
+    selectedResult?.let { item ->
+        PriceResultDetailSheet(
+            item = item,
+            imageUrlResolver = imageUrlResolver,
+            imageLoader = imageLoader,
+            resolveImageUrl = resolveImageUrl,
+            onDismissRequest = { selectedResult = null }
+        )
+    }
 }
 
 @Composable
 private fun PriceResultContent(
     uiState: PriceLookupUiState,
     modifier: Modifier = Modifier,
-    onRetrySearch: () -> Unit
+    imageUrlResolver: PlatformImageUrlResolver,
+    imageLoader: ImageLoader,
+    resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
+    onRetrySearch: () -> Unit,
+    onOpenDetail: (PriceLookupResult) -> Unit,
+    lightBindingForCode: (String) -> LightBinding?,
+    onBindLight: (PriceLookupResult) -> Unit,
+    onTurnOnLight: (PriceLookupResult) -> Unit,
+    onTurnOffLight: (PriceLookupResult) -> Unit
 ) {
     Box(
         modifier = modifier.fillMaxWidth(),
@@ -102,7 +159,17 @@ private fun PriceResultContent(
                         )
                     }
                     items(uiState.results, key = { it.id }) { item ->
-                        PriceResultCard(item = item)
+                        PriceResultCard(
+                            item = item,
+                            imageUrlResolver = imageUrlResolver,
+                            imageLoader = imageLoader,
+                            resolveImageUrl = resolveImageUrl,
+                            lightBinding = lightBindingForCode(item.code),
+                            onClick = { onOpenDetail(item) },
+                            onBindLight = { onBindLight(item) },
+                            onTurnOnLight = { onTurnOnLight(item) },
+                            onTurnOffLight = { onTurnOffLight(item) }
+                        )
                     }
                 }
             }

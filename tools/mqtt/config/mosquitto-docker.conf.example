@@ -1,0 +1,21 @@
+# Mosquitto config for the Docker runtime.
+# start-mosquitto.ps1 writes a generated copy to tools/mqtt/runtime/config/mosquitto.conf.
+
+listener 1883 0.0.0.0
+protocol mqtt
+
+allow_anonymous false
+password_file /mosquitto/config/passwordfile
+acl_file /mosquitto/config/aclfile
+
+persistence true
+persistence_location /mosquitto/data/
+autosave_interval 60
+
+log_dest stdout
+log_dest file /mosquitto/log/mosquitto.log
+log_type error
+log_type warning
+log_type notice
+log_type information
+connection_messages true

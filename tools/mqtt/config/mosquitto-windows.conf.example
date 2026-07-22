@@ -1,0 +1,21 @@
+# Mosquitto config for a native Windows install.
+# Replace the placeholder paths, or let start-mosquitto.ps1 generate this file.
+
+listener 1884 0.0.0.0
+protocol mqtt
+
+allow_anonymous false
+password_file C:/0.Files/Program/HighTacAI-Android-App/tools/mqtt/runtime/config/passwordfile
+acl_file C:/0.Files/Program/HighTacAI-Android-App/tools/mqtt/runtime/config/aclfile
+
+persistence true
+persistence_location C:/0.Files/Program/HighTacAI-Android-App/tools/mqtt/runtime/data/
+autosave_interval 60
+
+log_dest stdout
+log_dest file C:/0.Files/Program/HighTacAI-Android-App/tools/mqtt/runtime/log/mosquitto.log
+log_type error
+log_type warning
+log_type notice
+log_type information
+connection_messages true

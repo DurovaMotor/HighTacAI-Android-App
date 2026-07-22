@@ -1,0 +1,13 @@
+{
+  "Time": 1,
+  "Items": [
+    {
+      "TagID": "AD100000048F",
+      "Beep": true,
+      "Colors": [
+        {"R": true, "G": false, "B": false}
+      ],
+      "Flashing": true
+    }
+  ]
+}

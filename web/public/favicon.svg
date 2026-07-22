@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="HighTac">
+  <rect width="64" height="64" fill="#111111"/>
+  <path fill="#76B900" d="M12 12h9v15h13V12h9v40h-9V36H21v16h-9z"/>
+  <path fill="#FFFFFF" d="M47 12h5v40h-5z"/>
+</svg>
