@@ -131,9 +131,12 @@ data class DeviceEnrollmentRequest(
 data class DeviceEnrollmentCreated(
     val id: UUID,
     val status: EnrollmentStatus,
-    val pollSecret: SensitiveString,
+    val pollSecret: SensitiveString?,
     val expiresAt: Instant,
-    val pollAfterSeconds: Int
+    val pollAfterSeconds: Int?,
+    val displayName: String? = null,
+    val deviceId: UUID? = null,
+    val deviceToken: SensitiveString? = null
 )
 
 data class DeviceEnrollmentState(

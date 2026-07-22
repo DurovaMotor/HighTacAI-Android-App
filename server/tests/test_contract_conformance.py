@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from uuid import uuid4
 
 import yaml
 from jsonschema import Draft202012Validator, FormatChecker
@@ -90,6 +91,33 @@ def test_contract_error_envelope_is_strict(harness) -> None:
     assert response.status_code == 401
     _validate("ErrorEnvelope", response.json())
     assert response.json()["error"]["details"] == []
+
+
+def test_automatic_enrollment_responses_match_contract(harness) -> None:
+    created = harness.client.post(
+        "/api/v1/device-enrollments",
+        headers={"Idempotency-Key": str(uuid4())},
+        json={
+            "fingerprint_hash": "a" * 64,
+            "installation_key_hash": "b" * 64,
+            "manufacturer": "Contract",
+            "model": "Phone",
+            "app_version": "2.1.0",
+        },
+    )
+    assert created.status_code == 202, created.text
+    _validate("DeviceEnrollmentCreated", created.json())
+    assert created.json()["status"] == "APPROVED"
+    assert created.json()["device_token"]
+
+    polled = harness.client.get(
+        f"/api/v1/device-enrollments/{created.json()['id']}",
+        headers={"X-Enrollment-Secret": created.json()["poll_secret"]},
+    )
+    assert polled.status_code == 200, polled.text
+    _validate("DeviceEnrollmentStatus", polled.json())
+    assert polled.json()["status"] == "APPROVED"
+    assert polled.json()["device_token"] is None
 
 
 def test_supported_page_sizes_are_parsed_from_query_strings(harness) -> None:

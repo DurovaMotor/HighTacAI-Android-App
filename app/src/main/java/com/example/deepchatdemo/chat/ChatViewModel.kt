@@ -256,7 +256,7 @@ class ChatViewModel(
         val message = error.message.orEmpty()
         return when {
             error is PlatformMobileAuthorizationException ->
-                message.ifBlank { PLATFORM_APPROVAL_REQUIRED_MESSAGE }
+                message.ifBlank { PLATFORM_REGISTRATION_PENDING_MESSAGE }
             message == IMAGE_TOO_LARGE_MESSAGE -> IMAGE_TOO_LARGE_MESSAGE
             message.startsWith(IMAGE_PROCESSING_FAILED_PREFIX) -> IMAGE_PROCESSING_FAILED_MESSAGE
             message.startsWith(HTTP_ERROR_MESSAGE) -> HTTP_ERROR_MESSAGE
@@ -325,8 +325,8 @@ class ChatViewModel(
         private const val RECENT_CONTEXT_MESSAGE_LIMIT = 8
         private const val DEFAULT_IMAGE_PROMPT =
             "请识别并描述这张摩托车配件图片。"
-        private const val PLATFORM_APPROVAL_REQUIRED_MESSAGE =
-            "此手机尚未通过后台审批，请先在网页管理平台批准该设备。"
+        private const val PLATFORM_REGISTRATION_PENDING_MESSAGE =
+            "设备正在自动注册，请稍候重试。"
         private const val NETWORK_FAILED_MESSAGE =
             "网络连接失败，请检查网络后重试。"
         private const val REQUEST_TIMEOUT_MESSAGE =

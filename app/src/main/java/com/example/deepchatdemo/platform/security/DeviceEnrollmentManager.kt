@@ -6,10 +6,12 @@ import com.example.deepchatdemo.platform.model.DeviceEnrollmentCreated
 import com.example.deepchatdemo.platform.model.DeviceEnrollmentRequest
 import com.example.deepchatdemo.platform.model.DeviceEnrollmentState
 import com.example.deepchatdemo.platform.model.EnrollmentStatus
+import com.example.deepchatdemo.platform.model.SensitiveString
 import com.example.deepchatdemo.platform.network.HighTacPlatformApi
 import com.example.deepchatdemo.platform.network.IdempotencyKeyFactory
 import com.example.deepchatdemo.platform.network.PlatformApiException
 import com.example.deepchatdemo.platform.network.PlatformProtocolException
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +37,12 @@ class PendingEnrollmentExistsException : IllegalStateException(
 
 class DeviceAlreadyApprovedException : IllegalStateException(
     "This Android installation already has approved device credentials."
+)
+
+open class EnrollmentRestartRequiredException(message: String) : IllegalStateException(message)
+
+class EnrollmentTokenUnavailableException : EnrollmentRestartRequiredException(
+    "The approved enrollment token was already delivered and must be restarted."
 )
 
 interface DeviceEnrollmentController {
@@ -94,10 +102,33 @@ class DeviceEnrollmentManager(
             throw error
         }
         ensureEndpointUnchanged(endpoint)
-        credentialStore.savePendingEnrollment(created.id, created.pollSecret)
-        _state.value = EnrollmentClientState.Pending(
-            StoredEnrollment(created.id, created.pollSecret)
-        )
+        when (created.status) {
+            EnrollmentStatus.PENDING -> {
+                val pollSecret = created.pollSecret ?: throw PlatformProtocolException()
+                credentialStore.savePendingEnrollment(created.id, pollSecret)
+                _state.value = EnrollmentClientState.Pending(
+                    StoredEnrollment(created.id, pollSecret)
+                )
+            }
+            EnrollmentStatus.APPROVED -> {
+                if (!acceptApprovedResult(
+                        deviceId = created.deviceId,
+                        deviceToken = created.deviceToken
+                    )
+                ) {
+                    throw EnrollmentTokenUnavailableException()
+                }
+            }
+            EnrollmentStatus.REJECTED,
+            EnrollmentStatus.EXPIRED -> {
+                credentialStore.clearPendingEnrollment()
+                credentialStore.clearEnrollmentIdempotencyKey()
+                _state.value = EnrollmentClientState.Finished(created.status)
+                throw EnrollmentRestartRequiredException(
+                    "The enrollment replay is ${created.status} and must be restarted."
+                )
+            }
+        }
         created
     }
 
@@ -121,12 +152,23 @@ class DeviceEnrollmentManager(
 
         when (result.status) {
             EnrollmentStatus.PENDING -> Unit
-            EnrollmentStatus.APPROVED -> acceptApprovedResult(result)
+            EnrollmentStatus.APPROVED -> {
+                if (!acceptApprovedResult(
+                        deviceId = result.deviceId,
+                        deviceToken = result.deviceToken
+                    )
+                ) {
+                    throw EnrollmentTokenUnavailableException()
+                }
+            }
             EnrollmentStatus.REJECTED,
             EnrollmentStatus.EXPIRED -> {
                 credentialStore.clearPendingEnrollment()
                 credentialStore.clearEnrollmentIdempotencyKey()
                 _state.value = EnrollmentClientState.Finished(result.status)
+                throw EnrollmentRestartRequiredException(
+                    "The enrollment is ${result.status} and must be restarted."
+                )
             }
         }
         result
@@ -136,18 +178,22 @@ class DeviceEnrollmentManager(
         endpointChangeSubscription.close()
     }
 
-    private fun acceptApprovedResult(result: DeviceEnrollmentState) {
-        val deliveredToken = result.deviceToken
-        val deliveredDeviceId = result.deviceId
+    private fun acceptApprovedResult(deviceId: UUID?, deviceToken: SensitiveString?): Boolean {
+        val deliveredToken = deviceToken
+        val deliveredDeviceId = deviceId
         if (deliveredToken != null && deliveredDeviceId != null) {
             credentialStore.saveDeviceToken(deliveredDeviceId, deliveredToken)
         } else if (credentialStore.deviceToken() == null || credentialStore.deviceId() == null) {
-            throw PlatformProtocolException()
+            credentialStore.clearPendingEnrollment()
+            credentialStore.clearEnrollmentIdempotencyKey()
+            _state.value = EnrollmentClientState.NotStarted
+            return false
         } else {
             credentialStore.clearPendingEnrollment()
             credentialStore.clearEnrollmentIdempotencyKey()
         }
         _state.value = EnrollmentClientState.Approved
+        return true
     }
 
     private fun initialState(): EnrollmentClientState {

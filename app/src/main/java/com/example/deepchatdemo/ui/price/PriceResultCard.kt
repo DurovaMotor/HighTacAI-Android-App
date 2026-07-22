@@ -3,6 +3,7 @@ package com.example.deepchatdemo.ui.price
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +55,7 @@ internal fun PriceResultCard(
     resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
     modifier: Modifier = Modifier,
     lightBinding: LightBinding? = null,
+    onClick: () -> Unit = {},
     onBindLight: () -> Unit = {},
     onTurnOnLight: () -> Unit = {},
     onTurnOffLight: () -> Unit = {}
@@ -65,73 +68,79 @@ internal fun PriceResultCard(
         elevation = 14.dp
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top
-            ) {
-                ProductImage(
-                    item = item,
-                    imageUrlResolver = imageUrlResolver,
-                    imageLoader = imageLoader,
-                    resolveImageUrl = resolveImageUrl,
-                    contentDescription = item.nameCn.ifBlank { "产品图片" },
-                    modifier = Modifier.size(84.dp)
-                )
-                Spacer(Modifier.width(12.dp))
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(84.dp)
-                ) {
-                    Text(
-                        text = item.nameCn.ifBlank { item.nameEn }.ifBlank { "暂无记录" },
-                        color = PriceLookupColors.Ink,
-                        fontSize = 18.sp,
-                        lineHeight = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = "标准价：${priceOrNoRecord(item.standardPrice)}",
-                        color = PriceLookupColors.Muted,
-                        fontSize = 14.sp,
-                        lineHeight = 18.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "最新价：${priceOrNoRecord(item.latestPrice)}",
-                        color = PriceLookupColors.Purple,
-                        fontSize = 15.sp,
-                        lineHeight = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(12.dp))
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(1.dp)
-                    .background(Color.White.copy(alpha = 0.54f))
-            )
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = "产品编码：${displayOrNoRecord(item.code)} | 品牌：${displayOrNoRecord(item.brand)} | 适用车型：${displayOrNoRecord(item.models)}",
-                color = PriceLookupColors.Ink,
-                fontSize = 13.sp,
-                lineHeight = 19.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis
-            )
+                    .clickable(role = Role.Button, onClick = onClick)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    ProductImage(
+                        item = item,
+                        imageUrlResolver = imageUrlResolver,
+                        imageLoader = imageLoader,
+                        resolveImageUrl = resolveImageUrl,
+                        contentDescription = item.nameCn.ifBlank { "产品图片" },
+                        modifier = Modifier.size(84.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(84.dp)
+                    ) {
+                        Text(
+                            text = item.nameCn.ifBlank { item.nameEn }.ifBlank { "暂无记录" },
+                            color = PriceLookupColors.Ink,
+                            fontSize = 18.sp,
+                            lineHeight = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "标准价：${priceOrNoRecord(item.standardPrice)}",
+                            color = PriceLookupColors.Muted,
+                            fontSize = 14.sp,
+                            lineHeight = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "最新价：${priceOrNoRecord(item.latestPrice)}",
+                            color = PriceLookupColors.Purple,
+                            fontSize = 15.sp,
+                            lineHeight = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color.White.copy(alpha = 0.54f))
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "产品编码：${displayOrNoRecord(item.code)} | 品牌：${displayOrNoRecord(item.brand)} | 适用车型：${displayOrNoRecord(item.models)}",
+                    color = PriceLookupColors.Ink,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
             Spacer(Modifier.height(10.dp))
             if (lightBinding == null) {
@@ -175,7 +184,7 @@ internal fun PriceResultCard(
 }
 
 @Composable
-private fun ProductImage(
+internal fun ProductImage(
     item: PriceLookupResult,
     imageUrlResolver: PlatformImageUrlResolver,
     imageLoader: ImageLoader,

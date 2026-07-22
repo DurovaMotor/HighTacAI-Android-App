@@ -31,6 +31,8 @@ class EnrollmentCredentials:
     poll_secret: str
     status: str
     expires_at_ms: int
+    device_id: str | None = None
+    device_token: str | None = None
     poll_after_seconds: int = 5
 
 
@@ -84,22 +86,39 @@ class DeviceService:
                 raise IdempotencyConflictError(
                     "The idempotency key belongs to a different enrollment request."
                 )
+            device = session.get(AndroidDevice, replay.android_device_id)
+            if device is None:
+                raise ConflictError("Enrollment has no Android device.")
+            status, raw_token = self._authorize_enrollment(
+                replay,
+                device,
+                now=now,
+            )
+            session.commit()
             return EnrollmentCredentials(
                 enrollment_id=replay.id,
                 poll_secret=poll_secret,
-                status=EnrollmentStatus.PENDING.value,
+                status=status,
                 expires_at_ms=replay.expires_at_ms,
+                device_id=(
+                    device.id
+                    if status == EnrollmentStatus.APPROVED.value
+                    else None
+                ),
+                device_token=raw_token,
             )
 
         # A fingerprint is an audit signal, not an authorization identity.
         # Every fresh enrollment challenge represents a distinct installation
-        # that must be approved without changing an existing device or token.
+        # without changing an existing device or token. Revoking one device
+        # therefore does not permanently ban a later, fresh installation.
         device = AndroidDevice(
             fingerprint_hash=fingerprint_hash,
             manufacturer=_clean(manufacturer, 128),
             model=_clean(model, 128),
             app_version=_clean(app_version, 64),
-            status=DeviceStatus.PENDING.value,
+            status=DeviceStatus.APPROVED.value,
+            approved_at_ms=now,
         )
         session.add(device)
         session.flush()
@@ -113,16 +132,21 @@ class DeviceService:
             manufacturer=_clean(manufacturer, 128),
             model=_clean(model, 128),
             app_version=_clean(app_version, 64),
+            status=EnrollmentStatus.APPROVED.value,
             expires_at_ms=now + self.settings.enrollment_ttl_seconds * 1000,
+            approved_at_ms=now,
         )
         session.add(enrollment)
+        raw_token = self._issue_device_token(device, enrollment, now=now)
         device.last_seen_at_ms = now
         session.commit()
         return EnrollmentCredentials(
             enrollment_id=enrollment.id,
             poll_secret=poll_secret,
-            status=EnrollmentStatus.PENDING.value,
+            status=EnrollmentStatus.APPROVED.value,
             expires_at_ms=enrollment.expires_at_ms,
+            device_id=device.id,
+            device_token=raw_token,
         )
 
     def poll_enrollment(
@@ -147,7 +171,13 @@ class DeviceService:
 
         device = session.get(AndroidDevice, enrollment.android_device_id)
         display_name = device.display_name if device else None
-        if enrollment.status == EnrollmentStatus.REVOKED.value:
+        if (
+            enrollment.status == EnrollmentStatus.REVOKED.value
+            or (device is not None and device.status == DeviceStatus.REVOKED.value)
+        ):
+            if enrollment.status != EnrollmentStatus.REVOKED.value:
+                enrollment.status = EnrollmentStatus.REVOKED.value
+                session.commit()
             return EnrollmentPollResult(
                 enrollment.id,
                 "REJECTED",
@@ -155,6 +185,8 @@ class DeviceService:
                 enrollment.android_device_id,
                 enrollment.expires_at_ms,
             )
+        if enrollment.status == EnrollmentStatus.EXPIRED.value:
+            raise GoneError("Enrollment has expired.")
         if enrollment.status == EnrollmentStatus.TOKEN_ISSUED.value:
             if device is None or device.status != DeviceStatus.APPROVED.value:
                 raise ConflictError("Approved enrollment has no approved device.")
@@ -165,18 +197,27 @@ class DeviceService:
                 device.id,
                 enrollment.expires_at_ms,
             )
-        if enrollment.status != EnrollmentStatus.APPROVED.value:
+        if device is None:
+            raise ConflictError("Enrollment has no Android device.")
+        status, raw_token = self._authorize_enrollment(
+            enrollment,
+            device,
+            now=now,
+        )
+        session.commit()
+        if status == "REJECTED":
             return EnrollmentPollResult(
                 enrollment.id,
-                EnrollmentStatus.PENDING.value,
-                display_name,
-                None,
+                status,
+                device.display_name,
+                device.id,
                 enrollment.expires_at_ms,
             )
-
-        if device is None or device.status != DeviceStatus.APPROVED.value:
-            raise ConflictError("Approved enrollment has no approved device.")
-        if enrollment.token_issued_at_ms is not None:
+        if status == EnrollmentStatus.EXPIRED.value:
+            raise GoneError("Enrollment has expired.")
+        if status != EnrollmentStatus.APPROVED.value:
+            raise ConflictError("Enrollment could not be automatically authorized.")
+        if raw_token is None:
             return EnrollmentPollResult(
                 enrollment.id,
                 EnrollmentStatus.APPROVED.value,
@@ -184,11 +225,6 @@ class DeviceService:
                 device.id,
                 enrollment.expires_at_ms,
             )
-        raw_token = new_secret(48)
-        device.token_hash = hash_token(raw_token, "device-token")
-        device.last_seen_at_ms = now
-        enrollment.token_issued_at_ms = now
-        session.commit()
         return EnrollmentPollResult(
             enrollment.id,
             EnrollmentStatus.APPROVED.value,
@@ -197,6 +233,63 @@ class DeviceService:
             enrollment.expires_at_ms,
             device_token=raw_token,
         )
+
+    def _authorize_enrollment(
+        self,
+        enrollment: DeviceEnrollment,
+        device: AndroidDevice,
+        *,
+        now: int,
+    ) -> tuple[str, str | None]:
+        """Advance a valid enrollment without requiring an administrator."""
+        if enrollment.expires_at_ms <= now:
+            enrollment.status = EnrollmentStatus.EXPIRED.value
+            return EnrollmentStatus.EXPIRED.value, None
+        # Revocation remains an explicit security boundary for the enrollment
+        # and token that were revoked. A fresh enrollment creates a separate
+        # device record and is automatically authorized.
+        if (
+            enrollment.status == EnrollmentStatus.REVOKED.value
+            or device.status == DeviceStatus.REVOKED.value
+        ):
+            enrollment.status = EnrollmentStatus.REVOKED.value
+            return "REJECTED", None
+        if enrollment.status == EnrollmentStatus.TOKEN_ISSUED.value:
+            if device.status != DeviceStatus.APPROVED.value:
+                raise ConflictError("Approved enrollment has no approved device.")
+            return EnrollmentStatus.APPROVED.value, None
+        if enrollment.status not in {
+            EnrollmentStatus.PENDING.value,
+            EnrollmentStatus.APPROVED.value,
+        }:
+            raise ConflictError("Enrollment has an invalid authorization state.")
+
+        if device.status != DeviceStatus.APPROVED.value:
+            device.status = DeviceStatus.APPROVED.value
+            device.approved_at_ms = now
+            device.revoked_at_ms = None
+        if enrollment.status != EnrollmentStatus.APPROVED.value:
+            enrollment.status = EnrollmentStatus.APPROVED.value
+            enrollment.approved_at_ms = now
+        if enrollment.token_issued_at_ms is not None:
+            return EnrollmentStatus.APPROVED.value, None
+        return (
+            EnrollmentStatus.APPROVED.value,
+            self._issue_device_token(device, enrollment, now=now),
+        )
+
+    @staticmethod
+    def _issue_device_token(
+        device: AndroidDevice,
+        enrollment: DeviceEnrollment,
+        *,
+        now: int,
+    ) -> str:
+        raw_token = new_secret(48)
+        device.token_hash = hash_token(raw_token, "device-token")
+        device.last_seen_at_ms = now
+        enrollment.token_issued_at_ms = now
+        return raw_token
 
     def authenticate_token(
         self,
@@ -299,6 +392,7 @@ class DeviceService:
             DeviceEnrollment.status.in_([
                 EnrollmentStatus.PENDING.value,
                 EnrollmentStatus.APPROVED.value,
+                EnrollmentStatus.TOKEN_ISSUED.value,
             ]),
         ):
             enrollment.status = EnrollmentStatus.REVOKED.value

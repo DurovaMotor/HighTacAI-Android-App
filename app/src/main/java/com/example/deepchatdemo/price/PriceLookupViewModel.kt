@@ -270,7 +270,7 @@ private fun Long.toCacheAgeLabel(): String {
 private fun Throwable.toPriceLookupErrorMessage(): String {
     return when (this) {
         is PlatformMobileAuthorizationException ->
-            message ?: "此手机尚未通过后台审批，请先在网页管理平台批准该设备。"
+            message ?: "设备正在自动注册，请稍候重试。"
         is JianDaoYunPriceApi.JianDaoYunHttpException -> toPriceLookupErrorMessage()
         else -> message
             ?.takeIf { it.isNotBlank() }

@@ -172,7 +172,9 @@ npm run dev -- --host 0.0.0.0
 
 The first administrator is `Adam`; the initial password must be changed after
 the first login. Android does not use an account: the App enrolls a protected
-device identity and waits for administrator approval in the Web console.
+device identity and receives a one-time device token automatically, without an
+administrator approval step. Revoked tokens remain invalid; a fresh enrollment
+creates a separately revocable installation.
 
 When a local VPN sets `HTTP_PROXY`/`HTTPS_PROXY`, bypass it for LAN diagnostics:
 

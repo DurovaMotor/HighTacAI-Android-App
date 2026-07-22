@@ -48,10 +48,13 @@ def create_enrollment(
         idempotency_key=idempotency_key,
     )
     response.headers["Location"] = f"/api/v1/device-enrollments/{result.enrollment_id}"
+    response.headers["Cache-Control"] = "no-store"
     return {
         "id": result.enrollment_id,
-        "status": "PENDING",
+        "status": result.status,
         "poll_secret": result.poll_secret,
+        "device_id": result.device_id,
+        "device_token": result.device_token,
         "expires_at": timestamp(result.expires_at_ms),
         "poll_after_seconds": result.poll_after_seconds,
     }

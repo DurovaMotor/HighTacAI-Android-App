@@ -974,7 +974,7 @@ private fun LightGlassPanel(
 
 private fun connectButtonLabel(uiState: LightFindingUiState): String {
     return when {
-        uiState.isWaitingApproval -> "检查审批"
+        uiState.isAutoRegistering -> "检查注册"
         uiState.enrollmentStatus == DeviceEnrollmentUiStatus.APPROVED -> "刷新"
         else -> "登记设备"
     }
@@ -1056,11 +1056,11 @@ private fun DeviceEnrollmentUiStatus.label(): String {
     return when (this) {
         DeviceEnrollmentUiStatus.NOT_STARTED -> "设备未登记"
         DeviceEnrollmentUiStatus.REGISTERING -> "设备登记中"
-        DeviceEnrollmentUiStatus.WAITING_APPROVAL -> "设备待批准"
-        DeviceEnrollmentUiStatus.APPROVED -> "设备已批准"
+        DeviceEnrollmentUiStatus.AUTO_REGISTERING -> "设备自动注册中"
+        DeviceEnrollmentUiStatus.APPROVED -> "设备已注册"
         DeviceEnrollmentUiStatus.REJECTED -> "设备被拒绝"
         DeviceEnrollmentUiStatus.EXPIRED -> "登记已过期"
-        DeviceEnrollmentUiStatus.REVOKED -> "凭据已撤销"
+        DeviceEnrollmentUiStatus.REVOKED -> "凭据刷新中"
     }
 }
 
@@ -1068,7 +1068,7 @@ private fun DeviceEnrollmentUiStatus.statusColor(): Color {
     return when (this) {
         DeviceEnrollmentUiStatus.APPROVED -> LightUiColors.Green
         DeviceEnrollmentUiStatus.REGISTERING,
-        DeviceEnrollmentUiStatus.WAITING_APPROVAL -> LightUiColors.Warning
+        DeviceEnrollmentUiStatus.AUTO_REGISTERING -> LightUiColors.Warning
         DeviceEnrollmentUiStatus.REJECTED,
         DeviceEnrollmentUiStatus.EXPIRED,
         DeviceEnrollmentUiStatus.REVOKED -> LightUiColors.Danger
@@ -1082,7 +1082,7 @@ private fun PlatformEventConnectionState.label(): String {
         is PlatformEventConnectionState.Connecting -> "实时连接中"
         is PlatformEventConnectionState.Connected -> "实时已连接"
         is PlatformEventConnectionState.ReconnectScheduled -> "实时重连中"
-        PlatformEventConnectionState.AuthenticationRequired -> "实时待批准"
+        PlatformEventConnectionState.AuthenticationRequired -> "实时鉴权恢复中"
     }
 }
 

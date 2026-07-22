@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from uuid import uuid4
 
 from hightac_platform.db.models import AndroidDevice, DeviceEnrollment
 from hightac_platform.domain.enums import DeviceStatus, EnrollmentStatus
@@ -11,46 +11,63 @@ INSTALLATION_KEY_HASH = "b" * 64
 ENROLLMENT_KEY = "2ec5fd45-0e4d-4be4-a6bd-3517118b64df"
 
 
-def test_hashed_device_enrollment_one_time_token_and_authorization(
-    harness,
-) -> None:
-    enrollment_body = {
-        "fingerprint_hash": FINGERPRINT_HASH,
-        "installation_key_hash": INSTALLATION_KEY_HASH,
+def _enrollment_body(
+    *,
+    fingerprint_hash: str = FINGERPRINT_HASH,
+    installation_key_hash: str = INSTALLATION_KEY_HASH,
+) -> dict[str, str]:
+    return {
+        "fingerprint_hash": fingerprint_hash,
+        "installation_key_hash": installation_key_hash,
         "manufacturer": "Test",
         "model": "Phone",
         "app_version": "1.0",
     }
-    created = harness.client.post(
+
+
+def _create_enrollment(harness, *, key: str = ENROLLMENT_KEY, **body_overrides):
+    body = {**_enrollment_body(), **body_overrides}
+    return harness.client.post(
         "/api/v1/device-enrollments",
-        headers={"Idempotency-Key": ENROLLMENT_KEY},
-        json=enrollment_body,
+        headers={"Idempotency-Key": key},
+        json=body,
     )
+
+
+def test_enrollment_automatically_approves_and_authorizes_all_mobile_features(
+    harness,
+) -> None:
+    created = _create_enrollment(harness)
     assert created.status_code == 202, created.text
+    assert created.headers["Cache-Control"] == "no-store"
     credentials = created.json()
-    repeated_create = harness.client.post(
-        "/api/v1/device-enrollments",
-        headers={"Idempotency-Key": ENROLLMENT_KEY},
-        json=enrollment_body,
-    )
+    assert credentials["status"] == EnrollmentStatus.APPROVED.value
+    assert credentials["device_id"]
+    token = credentials["device_token"]
+    assert token
+
+    # An idempotent retry must not disclose the one-time token again.
+    repeated_create = _create_enrollment(harness)
     assert repeated_create.status_code == 202
-    assert repeated_create.json() == credentials
+    assert repeated_create.json() == {
+        **credentials,
+        "device_token": None,
+    }
 
     with harness.runtime.database.session_factory() as session:
         enrollment = session.get(DeviceEnrollment, credentials["id"])
-        device = session.scalar(select(AndroidDevice))
+        device = session.get(AndroidDevice, credentials["device_id"])
         assert enrollment.install_secret_hash == INSTALLATION_KEY_HASH
         assert enrollment.poll_secret_hash != credentials["poll_secret"]
+        assert enrollment.status == EnrollmentStatus.APPROVED.value
+        assert enrollment.approved_at_ms is not None
+        assert enrollment.token_issued_at_ms is not None
         assert device.fingerprint_hash == FINGERPRINT_HASH
-        device_id = device.id
+        assert device.status == DeviceStatus.APPROVED.value
+        assert device.approved_at_ms is not None
+        assert device.token_hash == hash_token(token, "device-token")
+        assert device.token_hash != token
 
-    admin_headers = harness.login()
-    approved = harness.client.post(
-        f"/api/v1/android-devices/{device_id}/approve",
-        headers=harness.mutation_headers(admin_headers),
-        json={"display_name": "Warehouse phone"},
-    )
-    assert approved.status_code == 200
     poll_headers = {"X-Enrollment-Secret": credentials["poll_secret"]}
     polled = harness.client.get(
         f"/api/v1/device-enrollments/{credentials['id']}",
@@ -58,34 +75,18 @@ def test_hashed_device_enrollment_one_time_token_and_authorization(
     )
     assert polled.status_code == 200
     assert polled.headers["Cache-Control"] == "no-store"
-    assert polled.json()["status"] == "APPROVED"
-    token = polled.json()["device_token"]
-    assert token
-    repeated = harness.client.get(
-        f"/api/v1/device-enrollments/{credentials['id']}",
-        headers=poll_headers,
-    )
-    assert repeated.json()["device_token"] is None
-    assert repeated.json()["status"] == "APPROVED"
-
-    with harness.runtime.database.session_factory() as session:
-        device = session.get(AndroidDevice, device_id)
-        first_token_hash = device.token_hash
-        assert first_token_hash == hash_token(token, "device-token")
-        assert first_token_hash != token
+    assert polled.json()["status"] == EnrollmentStatus.APPROVED.value
+    assert polled.json()["device_token"] is None
 
     harness.client.cookies.delete(harness.settings.session_cookie_name)
     bearer = {"Authorization": f"Bearer {token}"}
-    assert (
-        harness.client.get("/api/v1/products", headers=bearer).status_code
-        == 200
-    )
-    assert (
-        harness.client.get(
-            "/api/v1/broker/status", headers=bearer
-        ).status_code
-        == 200
-    )
+    assert harness.client.get("/api/v1/products", headers=bearer).status_code == 200
+    assert harness.client.get(
+        "/api/v1/broker/status", headers=bearer
+    ).status_code == 200
+
+    # Automatic enrollment grants Android application permissions, not admin
+    # account privileges or access to protected administrator mutations.
     forbidden_admin_write = harness.client.post(
         "/api/v1/products",
         headers=harness.mutation_headers(bearer),
@@ -111,71 +112,161 @@ def test_hashed_device_enrollment_one_time_token_and_authorization(
     assert android_unbind.status_code == 200
     assert android_unbind.json()["is_active"] is False
 
-    re_enrollment_body = {
-        **enrollment_body,
-        "installation_key_hash": "e" * 64,
-    }
-    re_enrolled = harness.client.post(
-        "/api/v1/device-enrollments",
-        headers={"Idempotency-Key": "39a79756-934d-438c-9d19-ffb615551e58"},
-        json=re_enrollment_body,
+
+def test_poll_automatically_upgrades_historical_pending_enrollment(harness) -> None:
+    created = _create_enrollment(harness)
+    assert created.status_code == 202, created.text
+    credentials = created.json()
+
+    # Simulate a database upgraded from the manual-approval release.
+    with harness.runtime.database.session_factory() as session:
+        enrollment = session.get(DeviceEnrollment, credentials["id"])
+        device = session.get(AndroidDevice, credentials["device_id"])
+        enrollment.status = EnrollmentStatus.PENDING.value
+        enrollment.approved_at_ms = None
+        enrollment.token_issued_at_ms = None
+        device.status = DeviceStatus.PENDING.value
+        device.approved_at_ms = None
+        device.token_hash = None
+        session.commit()
+
+    wrong_secret = harness.client.get(
+        f"/api/v1/device-enrollments/{credentials['id']}",
+        headers={"X-Enrollment-Secret": "x" * 43},
     )
-    assert re_enrolled.status_code == 202
-    re_enrollment = re_enrolled.json()
-    pending_poll = harness.client.get(
-        f"/api/v1/device-enrollments/{re_enrollment['id']}",
-        headers={"X-Enrollment-Secret": re_enrollment["poll_secret"]},
+    assert wrong_secret.status_code == 401
+    with harness.runtime.database.session_factory() as session:
+        assert session.get(
+            DeviceEnrollment, credentials["id"]
+        ).status == EnrollmentStatus.PENDING.value
+
+    polled = harness.client.get(
+        f"/api/v1/device-enrollments/{credentials['id']}",
+        headers={"X-Enrollment-Secret": credentials["poll_secret"]},
     )
-    assert pending_poll.status_code == 200
-    assert pending_poll.json()["status"] == EnrollmentStatus.PENDING.value
-    assert pending_poll.json()["device_token"] is None
+    assert polled.status_code == 200, polled.text
+    assert polled.json()["status"] == EnrollmentStatus.APPROVED.value
+    replacement_token = polled.json()["device_token"]
+    assert replacement_token
 
     with harness.runtime.database.session_factory() as session:
-        assert session.get(AndroidDevice, device_id).token_hash == first_token_hash
-        new_enrollment = session.get(DeviceEnrollment, re_enrollment["id"])
-        assert new_enrollment.android_device_id != device_id
-        replacement_device_id = new_enrollment.android_device_id
-        replacement_device = session.get(AndroidDevice, replacement_device_id)
-        assert replacement_device.status == DeviceStatus.PENDING.value
-        assert replacement_device.token_hash is None
-        assert session.query(AndroidDevice).count() == 2
+        enrollment = session.get(DeviceEnrollment, credentials["id"])
+        device = session.get(AndroidDevice, credentials["device_id"])
+        assert enrollment.status == EnrollmentStatus.APPROVED.value
+        assert enrollment.approved_at_ms is not None
+        assert enrollment.token_issued_at_ms is not None
+        assert device.status == DeviceStatus.APPROVED.value
+        assert device.approved_at_ms is not None
+        assert device.token_hash == hash_token(replacement_token, "device-token")
 
-    # Merely requesting another enrollment cannot revoke or replace the
-    # already-approved installation's bearer token.
+    bearer = {"Authorization": f"Bearer {replacement_token}"}
     assert harness.client.get("/api/v1/products", headers=bearer).status_code == 200
 
-    replacement_approved = harness.client.post(
-        f"/api/v1/android-devices/{replacement_device_id}/approve",
-        headers=harness.mutation_headers(harness.login()),
-        json={"display_name": "Reinstalled warehouse phone"},
-    )
-    assert replacement_approved.status_code == 200
-    replacement_poll = harness.client.get(
-        f"/api/v1/device-enrollments/{re_enrollment['id']}",
-        headers={"X-Enrollment-Secret": re_enrollment["poll_secret"]},
-    )
-    replacement_token = replacement_poll.json()["device_token"]
-    assert replacement_token
-    replacement_bearer = {"Authorization": f"Bearer {replacement_token}"}
+
+def test_fresh_challenge_recovers_lost_token_response_without_revoking_old_token(
+    harness,
+) -> None:
+    created = _create_enrollment(harness)
+    assert created.status_code == 202, created.text
+    first = created.json()
+    first_bearer = {"Authorization": f"Bearer {first['device_token']}"}
+
+    # A retry after a lost response confirms the enrollment but deliberately
+    # does not disclose the one-time credential again.
+    replay = _create_enrollment(harness)
+    assert replay.status_code == 202
+    assert replay.json()["status"] == EnrollmentStatus.APPROVED.value
+    assert replay.json()["device_token"] is None
+
+    # The client recovers by discarding the exhausted idempotency key and
+    # submitting a fresh challenge. Existing installations and tokens are not
+    # silently replaced by enrollment creation.
+    recovered = _create_enrollment(harness, key=str(uuid4()))
+    assert recovered.status_code == 202, recovered.text
+    second = recovered.json()
+    assert second["status"] == EnrollmentStatus.APPROVED.value
+    assert second["device_id"] != first["device_id"]
+    assert second["device_token"]
+    second_bearer = {"Authorization": f"Bearer {second['device_token']}"}
     assert harness.client.get(
-        "/api/v1/products", headers=replacement_bearer
+        "/api/v1/products", headers=first_bearer
     ).status_code == 200
-    assert harness.client.get("/api/v1/products", headers=bearer).status_code == 200
+    assert harness.client.get(
+        "/api/v1/products", headers=second_bearer
+    ).status_code == 200
 
-    revoke_admin = harness.login()
+
+def test_expired_idempotent_replay_requires_a_fresh_challenge(harness) -> None:
+    created = _create_enrollment(harness)
+    assert created.status_code == 202, created.text
+    credentials = created.json()
+
+    with harness.runtime.database.session_factory() as session:
+        enrollment = session.get(DeviceEnrollment, credentials["id"])
+        enrollment.expires_at_ms = 0
+        session.commit()
+
+    replay = _create_enrollment(harness)
+    assert replay.status_code == 202
+    assert replay.json()["status"] == EnrollmentStatus.EXPIRED.value
+    assert replay.json()["device_id"] is None
+    assert replay.json()["device_token"] is None
+
+    recovered = _create_enrollment(harness, key=str(uuid4()))
+    assert recovered.status_code == 202
+    assert recovered.json()["status"] == EnrollmentStatus.APPROVED.value
+    assert recovered.json()["device_token"]
+
+
+def test_revoked_enrollment_stays_rejected_but_fresh_enrollment_is_authorized(
+    harness,
+) -> None:
+    created = _create_enrollment(harness)
+    assert created.status_code == 202, created.text
+    credentials = created.json()
+    old_bearer = {"Authorization": f"Bearer {credentials['device_token']}"}
+
     revoked = harness.client.post(
-        f"/api/v1/android-devices/{device_id}/revoke",
-        headers=harness.mutation_headers(revoke_admin),
+        f"/api/v1/android-devices/{credentials['device_id']}/revoke",
+        headers=harness.mutation_headers(harness.login()),
         json={"confirmation": "REVOKE DEVICE"},
     )
     assert revoked.status_code == 200
-    assert (
-        harness.client.get("/api/v1/products", headers=bearer).status_code
-        == 401
+    assert harness.client.get(
+        "/api/v1/products", headers=old_bearer
+    ).status_code == 401
+
+    # Possession of a revoked enrollment secret cannot silently restore the
+    # revoked token or device record.
+    revoked_poll = harness.client.get(
+        f"/api/v1/device-enrollments/{credentials['id']}",
+        headers={"X-Enrollment-Secret": credentials["poll_secret"]},
     )
+    assert revoked_poll.status_code == 200
+    assert revoked_poll.json()["status"] == "REJECTED"
+    assert revoked_poll.json()["device_token"] is None
+    revoked_replay = _create_enrollment(harness)
+    assert revoked_replay.status_code == 202
+    assert revoked_replay.json()["status"] == "REJECTED"
+    assert revoked_replay.json()["device_token"] is None
+
+    # A fresh enrollment challenge represents a new installation and needs no
+    # administrator action, even when an older device record was revoked.
+    replacement = _create_enrollment(harness, key=str(uuid4()))
+    assert replacement.status_code == 202, replacement.text
+    replacement_credentials = replacement.json()
+    assert replacement_credentials["status"] == EnrollmentStatus.APPROVED.value
+    assert replacement_credentials["device_id"] != credentials["device_id"]
+    assert replacement_credentials["device_token"]
+    replacement_bearer = {
+        "Authorization": f"Bearer {replacement_credentials['device_token']}"
+    }
     assert harness.client.get(
         "/api/v1/products", headers=replacement_bearer
     ).status_code == 200
+    assert harness.client.get(
+        "/api/v1/products", headers=old_bearer
+    ).status_code == 401
 
 
 def test_enrollment_rejects_raw_android_identity(harness) -> None:
@@ -199,50 +290,32 @@ def test_enrollment_rejects_raw_android_identity(harness) -> None:
 
 
 def test_legacy_token_issued_enrollment_maps_to_approved(harness) -> None:
-    created = harness.client.post(
-        "/api/v1/device-enrollments",
-        headers={
-            "Idempotency-Key": "a54e8497-3580-4c99-8fb4-2fdaf858f02b"
-        },
-        json={
-            "fingerprint_hash": "c" * 64,
-            "installation_key_hash": "d" * 64,
-            "manufacturer": "M" * 128,
-            "model": "N" * 128,
-            "app_version": "1.0",
-        },
+    created = _create_enrollment(
+        harness,
+        key="a54e8497-3580-4c99-8fb4-2fdaf858f02b",
+        fingerprint_hash="c" * 64,
+        installation_key_hash="d" * 64,
+        manufacturer="M" * 128,
+        model="N" * 128,
     )
     assert created.status_code == 202, created.text
-    with harness.runtime.database.session_factory() as session:
-        enrollment = session.get(
-            DeviceEnrollment, created.json()["id"]
-        )
-        device_id = enrollment.android_device_id
-
-    approved = harness.client.post(
-        f"/api/v1/android-devices/{device_id}/approve",
-        headers=harness.mutation_headers(harness.login()),
-        json={"display_name": "D" * 128},
-    )
-    assert approved.status_code == 200, approved.text
-    assert approved.json()["display_name"] == "D" * 128
-    assert approved.json()["manufacturer"] == "M" * 128
-    assert approved.json()["model"] == "N" * 128
+    credentials = created.json()
+    token = credentials["device_token"]
 
     with harness.runtime.database.session_factory() as session:
-        enrollment = session.get(
-            DeviceEnrollment, created.json()["id"]
-        )
+        enrollment = session.get(DeviceEnrollment, credentials["id"])
         enrollment.status = EnrollmentStatus.TOKEN_ISSUED.value
         session.commit()
 
     polled = harness.client.get(
-        f"/api/v1/device-enrollments/{created.json()['id']}",
-        headers={
-            "X-Enrollment-Secret": created.json()["poll_secret"]
-        },
+        f"/api/v1/device-enrollments/{credentials['id']}",
+        headers={"X-Enrollment-Secret": credentials["poll_secret"]},
     )
     assert polled.status_code == 200
     assert polled.headers["Cache-Control"] == "no-store"
-    assert polled.json()["status"] == "APPROVED"
+    assert polled.json()["status"] == EnrollmentStatus.APPROVED.value
     assert polled.json()["device_token"] is None
+    assert harness.client.get(
+        "/api/v1/products",
+        headers={"Authorization": f"Bearer {token}"},
+    ).status_code == 200

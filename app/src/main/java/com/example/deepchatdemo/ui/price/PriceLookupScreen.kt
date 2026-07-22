@@ -14,7 +14,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -47,6 +50,7 @@ fun PriceLookupScreen(
     onTurnOnLight: (PriceLookupResult) -> Unit,
     onTurnOffLight: (PriceLookupResult) -> Unit
 ) {
+    var selectedResult by remember { mutableStateOf<PriceLookupResult?>(null) }
     val applicationContext = LocalContext.current.applicationContext
     val imageUrlResolver = remember(applicationContext) {
         PlatformImageUrlResolver(SharedPreferencesPlatformConfigStore(applicationContext))
@@ -73,6 +77,7 @@ fun PriceLookupScreen(
             imageLoader = imageLoader,
             resolveImageUrl = resolveImageUrl,
             onRetrySearch = onRetrySearch,
+            onOpenDetail = { selectedResult = it },
             lightBindingForCode = lightBindingForCode,
             onBindLight = onBindLight,
             onTurnOnLight = onTurnOnLight,
@@ -89,6 +94,16 @@ fun PriceLookupScreen(
             onRefreshSearch = onRefreshSearch
         )
     }
+
+    selectedResult?.let { item ->
+        PriceResultDetailSheet(
+            item = item,
+            imageUrlResolver = imageUrlResolver,
+            imageLoader = imageLoader,
+            resolveImageUrl = resolveImageUrl,
+            onDismissRequest = { selectedResult = null }
+        )
+    }
 }
 
 @Composable
@@ -99,6 +114,7 @@ private fun PriceResultContent(
     imageLoader: ImageLoader,
     resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
     onRetrySearch: () -> Unit,
+    onOpenDetail: (PriceLookupResult) -> Unit,
     lightBindingForCode: (String) -> LightBinding?,
     onBindLight: (PriceLookupResult) -> Unit,
     onTurnOnLight: (PriceLookupResult) -> Unit,
@@ -149,6 +165,7 @@ private fun PriceResultContent(
                             imageLoader = imageLoader,
                             resolveImageUrl = resolveImageUrl,
                             lightBinding = lightBindingForCode(item.code),
+                            onClick = { onOpenDetail(item) },
                             onBindLight = { onBindLight(item) },
                             onTurnOnLight = { onTurnOnLight(item) },
                             onTurnOffLight = { onTurnOffLight(item) }

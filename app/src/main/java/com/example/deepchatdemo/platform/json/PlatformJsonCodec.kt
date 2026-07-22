@@ -307,19 +307,46 @@ object PlatformJsonCodec {
     }
 
     private fun parseDeviceEnrollmentCreated(root: StrictJsonObject): DeviceEnrollmentCreated {
-        root.shape(setOf("id", "status", "poll_secret", "expires_at", "poll_after_seconds"))
+        root.shape(
+            required = setOf("id", "status", "expires_at"),
+            optional = setOf(
+                "poll_secret", "poll_after_seconds", "display_name", "device_id", "device_token"
+            )
+        )
         val status = root.enum<EnrollmentStatus>("status")
-        if (status != EnrollmentStatus.PENDING) {
-            throw PlatformJsonException("$.status", "created enrollment must be PENDING")
+        val pollSecret = root.value.takeIf { it.has("poll_secret") }
+            ?.let { root.nullableString("poll_secret", minLength = 32, maxLength = 256) }
+            ?.let(SensitiveString::fromTransport)
+        val pollAfterSeconds = root.value.takeIf { it.has("poll_after_seconds") }
+            ?.let { root.nullableInt("poll_after_seconds", minimum = 1, maximum = 60) }
+        val displayName = root.value.takeIf { it.has("display_name") }
+            ?.let { root.nullableString("display_name", maxLength = 128) }
+        val deviceId = root.value.takeIf { it.has("device_id") }
+            ?.let { root.nullableUuid("device_id") }
+        val token = root.value.takeIf { it.has("device_token") }
+            ?.let { root.nullableString("device_token", minLength = 32, maxLength = 512) }
+            ?.let(SensitiveString::fromTransport)
+        if (status == EnrollmentStatus.PENDING && (pollSecret == null || pollAfterSeconds == null)) {
+            throw PlatformJsonException(
+                "$",
+                "pending enrollment must include poll_secret and poll_after_seconds"
+            )
+        }
+        if (status == EnrollmentStatus.APPROVED && deviceId == null) {
+            throw PlatformJsonException(
+                "$",
+                "approved enrollment must include device_id"
+            )
         }
         return DeviceEnrollmentCreated(
             id = root.uuid("id"),
             status = status,
-            pollSecret = SensitiveString.fromTransport(
-                root.string("poll_secret", minLength = 32, maxLength = 256)
-            ),
+            pollSecret = pollSecret,
             expiresAt = root.instant("expires_at"),
-            pollAfterSeconds = root.int("poll_after_seconds", minimum = 1, maximum = 60)
+            pollAfterSeconds = pollAfterSeconds,
+            displayName = displayName,
+            deviceId = deviceId,
+            deviceToken = token
         )
     }
 

@@ -46,9 +46,9 @@ class PlatformMobileAuthorizationException(
 ) : IOException(
     when (problem) {
         PlatformMobileAuthorizationProblem.DEVICE_TOKEN_MISSING ->
-            "此手机尚未通过后台审批，请先在网页管理平台批准该设备。"
+            "设备正在自动注册，请稍候重试。"
         PlatformMobileAuthorizationProblem.DEVICE_TOKEN_REJECTED ->
-            "此手机的平台授权已失效，请在网页管理平台重新批准该设备。"
+            "设备凭据已失效，应用将自动重新注册，请稍候重试。"
     }
 )
 

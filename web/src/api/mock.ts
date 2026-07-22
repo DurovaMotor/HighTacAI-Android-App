@@ -767,23 +767,11 @@ export async function mockRequest<T>(path: string, options: RequestOptions = {})
     const status = url.searchParams.get('status');
     return paginate(devices.filter((item) => !status || item.status === status), url) as T;
   }
-  const deviceAction = route.match(/^\/android-devices\/([^/]+)\/(approve|revoke|rename)$/);
+  const deviceAction = route.match(/^\/android-devices\/([^/]+)\/rename$/);
   if (deviceAction && method === 'POST') {
     const device = devices.find((item) => item.id === decodeURIComponent(deviceAction[1])) || notFound('设备');
-    const action = deviceAction[2];
-    if (action === 'revoke') {
-      if (body<{ confirmation?: string }>(options).confirmation !== 'REVOKE DEVICE') throw new ApiError('确认短语不正确', 400, 'CONFIRMATION_REQUIRED');
-      device.status = 'REVOKED';
-      device.online = false;
-      device.revoked_at = new Date().toISOString();
-    } else {
-      device.display_name = body<{ display_name: string }>(options).display_name;
-      if (action === 'approve') {
-        device.status = 'APPROVED';
-        device.approved_at = new Date().toISOString();
-      }
-    }
-    addLog(`device.${action}`);
+    device.display_name = body<{ display_name: string }>(options).display_name;
+    addLog('device.rename');
     return device as T;
   }
 

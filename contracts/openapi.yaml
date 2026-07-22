@@ -455,6 +455,10 @@ paths:
           headers:
             Location:
               $ref: "#/components/headers/Location"
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
             X-Request-ID:
               $ref: "#/components/headers/RequestId"
           content:
@@ -1693,8 +1697,12 @@ paths:
     post:
       tags: [Device enrollments]
       operationId: createDeviceEnrollment
-      summary: Create or resume an Android installation enrollment.
-      description: Raw ANDROID_ID and private installation key material must never be sent.
+      summary: Create or resume an automatically authorized Android installation enrollment.
+      description: >-
+        Raw ANDROID_ID and private installation key material must never be sent.
+        A fresh valid installation is authorized immediately without an
+        administrator action. A revoked enrollment remains rejected; a new
+        idempotency challenge creates a separately revocable installation.
       security: []
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1712,7 +1720,12 @@ paths:
               app_version: 2.0.0
       responses:
         "202":
-          description: Enrollment is pending approval. The poll secret is returned once.
+          description: >-
+            Enrollment was processed. A fresh enrollment is APPROVED and
+            returns its device bearer token once. Idempotent replays preserve
+            APPROVED, REJECTED, or EXPIRED status but do not disclose an
+            already-issued token. Clients recover a lost one-time response by
+            submitting a new idempotency challenge.
           headers:
             Location:
               $ref: "#/components/headers/Location"
@@ -1734,8 +1747,12 @@ paths:
     get:
       tags: [Device enrollments]
       operationId: getDeviceEnrollment
-      summary: Poll enrollment state and receive the approved device token once.
-      description: The poll secret is installation-scoped and is replaced by Android bearer identity after approval.
+      summary: Poll enrollment state and receive an automatically authorized device token once.
+      description: >-
+        The poll secret is installation-scoped and is replaced by Android
+        bearer identity after authorization. Polling automatically advances
+        PENDING records retained from manual-approval releases. Revoked
+        enrollments remain rejected.
       security:
         - EnrollmentPollSecret: []
       responses:
@@ -1753,13 +1770,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeviceEnrollmentStatus"
               examples:
-                pending:
+                upgradedPending:
                   value:
                     id: 88f22b30-f160-4446-b793-883628620243
-                    status: PENDING
+                    status: APPROVED
                     display_name: null
-                    device_id: null
-                    device_token: null
+                    device_id: ba17796c-c44e-4dc5-9afc-e82af7ef0cf1
+                    device_token: htdev_fixture_token_returned_once
                     expires_at: "2026-07-17T08:15:30Z"
                 approvedOnce:
                   value:
@@ -4035,18 +4052,29 @@ components:
     DeviceEnrollmentCreated:
       type: object
       additionalProperties: false
-      required: [id, status, poll_secret, expires_at, poll_after_seconds]
+      required: [id, status, poll_secret, device_id, device_token, expires_at, poll_after_seconds]
       properties:
         id:
           $ref: "#/components/schemas/Uuid"
         status:
-          type: string
-          const: PENDING
+          $ref: "#/components/schemas/EnrollmentStatus"
         poll_secret:
           type: string
           minLength: 32
           maxLength: 256
           writeOnly: true
+        device_id:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+        device_token:
+          type: [string, "null"]
+          minLength: 32
+          maxLength: 512
+          writeOnly: true
+          description: >-
+            Returned once for a fresh automatically authorized enrollment;
+            the server persists only a token hash.
         expires_at:
           $ref: "#/components/schemas/Timestamp"
         poll_after_seconds:
@@ -4075,7 +4103,9 @@ components:
           minLength: 32
           maxLength: 512
           writeOnly: true
-          description: Returned once after approval; the server persists only a token hash.
+          description: >-
+            Returned once when polling automatically upgrades a historical
+            PENDING enrollment; the server persists only a token hash.
         expires_at:
           $ref: "#/components/schemas/Timestamp"
     DeviceStatus:

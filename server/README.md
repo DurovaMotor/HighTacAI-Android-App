@@ -30,9 +30,30 @@ The default broker endpoint is `127.0.0.1:1884`. Broker supervision defaults to
 read-only unmanaged detection; choose `subprocess` or `windows_service` explicitly
 before enabling start/stop controls.
 
+## Android device enrollment
+
+Valid Android enrollment requests are authorized automatically. `POST
+/api/v1/device-enrollments` returns `APPROVED` together with a one-time device
+bearer token; no administrator approval is required. The installation-scoped
+poll secret is still required by `GET /api/v1/device-enrollments/{id}`, which
+also upgrades `PENDING` records created by older releases.
+
+Device tokens are one-time response credentials. An idempotent replay reports
+the current `APPROVED`, `REJECTED`, or `EXPIRED` state but does not disclose an
+already-issued token. After a lost token response or an expired challenge, the
+App must discard that idempotency key and submit a fresh challenge. Creating a
+fresh enrollment does not invalidate bearer tokens held by other active device
+records.
+
+Revocation remains a security boundary: a revoked enrollment secret cannot
+restore its device or token. A fresh enrollment challenge creates a separate,
+automatically authorized device record, while the old token stays invalid.
+Automatic enrollment grants Android application permissions only and does not
+grant administrator session or Web console write privileges.
+
 ## Mobile third-party proxies
 
-Approved Android devices call third-party services through the platform with
+Automatically enrolled Android devices call third-party services through the platform with
 their HighTac device bearer token. Configure the upstream integrations only in
 the protected runtime environment:
 

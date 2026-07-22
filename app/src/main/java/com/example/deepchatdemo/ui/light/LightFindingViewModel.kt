@@ -66,6 +66,7 @@ import com.example.deepchatdemo.platform.repository.PlatformWriteClosedReason
 import com.example.deepchatdemo.platform.security.DeviceAlreadyApprovedException
 import com.example.deepchatdemo.platform.security.DeviceEnrollmentController
 import com.example.deepchatdemo.platform.security.EnrollmentClientState
+import com.example.deepchatdemo.platform.security.EnrollmentRestartRequiredException
 import com.example.deepchatdemo.platform.security.PendingEnrollmentExistsException
 import java.time.Instant
 import java.util.UUID
@@ -88,7 +89,7 @@ enum class PlatformBackendUiStatus {
 enum class DeviceEnrollmentUiStatus {
     NOT_STARTED,
     REGISTERING,
-    WAITING_APPROVAL,
+    AUTO_REGISTERING,
     APPROVED,
     REJECTED,
     EXPIRED,
@@ -163,8 +164,8 @@ data class LightFindingUiState(
     val isBrokerReady: Boolean
         get() = !brokerSnapshotStale && brokerStatus?.isReady == true
 
-    val isWaitingApproval: Boolean
-        get() = enrollmentStatus == DeviceEnrollmentUiStatus.WAITING_APPROVAL
+    val isAutoRegistering: Boolean
+        get() = enrollmentStatus == DeviceEnrollmentUiStatus.AUTO_REGISTERING
 
     val canWrite: Boolean
         get() = connectionEnabled &&
@@ -592,7 +593,7 @@ class LightFindingViewModel(
                         startApprovedSession()
                     }
                 }
-                is EnrollmentClientState.Pending -> pollUntilFinished(DEFAULT_POLL_DELAY_MILLIS)
+                is EnrollmentClientState.Pending -> pollUntilFinished(AUTO_REGISTRATION_POLL_MILLIS)
                 EnrollmentClientState.Creating -> Unit
                 EnrollmentClientState.NotStarted,
                 is EnrollmentClientState.Finished -> beginThenPoll()
@@ -601,35 +602,54 @@ class LightFindingViewModel(
     }
 
     private suspend fun beginThenPoll() {
-        uiState = uiState.copy(
-            enrollmentStatus = DeviceEnrollmentUiStatus.REGISTERING,
-            inputMessage = "正在登记此设备。"
-        )
-        try {
-            val created = enrollmentManager.beginEnrollment()
+        while (true) {
             uiState = uiState.copy(
-                backendStatus = PlatformBackendUiStatus.AVAILABLE,
-                enrollmentStatus = DeviceEnrollmentUiStatus.WAITING_APPROVAL,
-                inputMessage = "设备已登记，等待管理员批准。"
+                enrollmentStatus = DeviceEnrollmentUiStatus.REGISTERING,
+                inputMessage = "正在登记此设备。"
             )
-            addEvent("设备登记", "等待管理员批准")
-            pollUntilFinished(created.pollAfterSeconds * 1_000L)
-        } catch (_: DeviceAlreadyApprovedException) {
-            startApprovedSession()
-        } catch (_: PendingEnrollmentExistsException) {
-            pollUntilFinished(DEFAULT_POLL_DELAY_MILLIS)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            handleConnectionFailure(error)
+            try {
+                val created = enrollmentManager.beginEnrollment()
+                if (created.status == EnrollmentStatus.APPROVED) {
+                    uiState = uiState.copy(
+                        backendStatus = PlatformBackendUiStatus.AVAILABLE,
+                        enrollmentStatus = DeviceEnrollmentUiStatus.APPROVED,
+                        inputMessage = "设备已自动注册，正在同步服务器快照。"
+                    )
+                    addEvent("设备自动注册", created.displayName ?: "Android 设备")
+                    startApprovedSession()
+                    return
+                }
+                uiState = uiState.copy(
+                    backendStatus = PlatformBackendUiStatus.AVAILABLE,
+                    enrollmentStatus = DeviceEnrollmentUiStatus.AUTO_REGISTERING,
+                    inputMessage = "设备正在自动注册。"
+                )
+                addEvent("设备登记", "正在自动注册")
+                val shouldRestart = pollUntilFinished(
+                    created.pollAfterSeconds?.times(1_000L) ?: AUTO_REGISTRATION_POLL_MILLIS
+                )
+                if (!shouldRestart) return
+            } catch (_: DeviceAlreadyApprovedException) {
+                startApprovedSession()
+                return
+            } catch (_: PendingEnrollmentExistsException) {
+                if (!pollUntilFinished(AUTO_REGISTRATION_POLL_MILLIS)) return
+            } catch (_: EnrollmentRestartRequiredException) {
+                pollSleeper(AUTO_REGISTRATION_POLL_MILLIS)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                handleConnectionFailure(error)
+                return
+            }
         }
     }
 
-    private suspend fun pollUntilFinished(initialDelayMillis: Long) {
+    private suspend fun pollUntilFinished(initialDelayMillis: Long): Boolean {
         var nextDelayMillis = initialDelayMillis.coerceAtLeast(1_000L)
         uiState = uiState.copy(
-            enrollmentStatus = DeviceEnrollmentUiStatus.WAITING_APPROVAL,
-            inputMessage = "等待管理员批准此设备。"
+            enrollmentStatus = DeviceEnrollmentUiStatus.AUTO_REGISTERING,
+            inputMessage = "设备正在自动注册。"
         )
         while (true) {
             pollSleeper(nextDelayMillis)
@@ -639,69 +659,72 @@ class LightFindingViewModel(
                 when (result.status) {
                     EnrollmentStatus.PENDING -> {
                         uiState = uiState.copy(
-                            enrollmentStatus = DeviceEnrollmentUiStatus.WAITING_APPROVAL,
-                            inputMessage = "等待管理员批准此设备。"
+                            enrollmentStatus = DeviceEnrollmentUiStatus.AUTO_REGISTERING,
+                            inputMessage = "设备正在自动注册。"
                         )
-                        nextDelayMillis = DEFAULT_POLL_DELAY_MILLIS
+                        nextDelayMillis = AUTO_REGISTRATION_POLL_MILLIS
                     }
 
                     EnrollmentStatus.APPROVED -> {
                         uiState = uiState.copy(
                             enrollmentStatus = DeviceEnrollmentUiStatus.APPROVED,
-                            inputMessage = "设备已批准，正在同步服务器快照。"
+                            inputMessage = "设备已自动注册，正在同步服务器快照。"
                         )
-                        addEvent("设备已批准", result.displayName ?: "Android 设备")
+                        addEvent("设备自动注册", result.displayName ?: "Android 设备")
                         startApprovedSession()
-                        return
+                        return false
                     }
 
                     EnrollmentStatus.REJECTED -> {
                         uiState = uiState.copy(
-                            enrollmentStatus = DeviceEnrollmentUiStatus.REJECTED,
-                            connectionEnabled = false,
+                            enrollmentStatus = DeviceEnrollmentUiStatus.AUTO_REGISTERING,
                             endpointVerified = false,
-                            inputMessage = "设备登记已被拒绝。"
+                            inputMessage = "设备注册状态已更新，正在自动重试。"
                         )
-                        return
+                        pollSleeper(AUTO_REGISTRATION_POLL_MILLIS)
+                        return true
                     }
 
                     EnrollmentStatus.EXPIRED -> {
                         uiState = uiState.copy(
-                            enrollmentStatus = DeviceEnrollmentUiStatus.EXPIRED,
-                            connectionEnabled = false,
+                            enrollmentStatus = DeviceEnrollmentUiStatus.AUTO_REGISTERING,
                             endpointVerified = false,
-                            inputMessage = "设备登记已过期，请重新登记。"
+                            inputMessage = "设备注册已刷新，正在自动重试。"
                         )
-                        return
+                        pollSleeper(AUTO_REGISTRATION_POLL_MILLIS)
+                        return true
                     }
                 }
             } catch (error: CancellationException) {
                 throw error
+            } catch (_: EnrollmentRestartRequiredException) {
+                pollSleeper(AUTO_REGISTRATION_POLL_MILLIS)
+                return true
             } catch (error: PlatformTransportException) {
                 uiState = uiState.copy(
                     backendStatus = PlatformBackendUiStatus.UNAVAILABLE,
                     endpointVerified = false,
-                    inputMessage = "后台暂时不可用，仍在等待恢复后检查审批。"
+                    inputMessage = "后台暂时不可用，恢复后将继续自动注册。"
                 )
-                nextDelayMillis = DEFAULT_POLL_DELAY_MILLIS
+                nextDelayMillis = AUTO_REGISTRATION_POLL_MILLIS
             } catch (error: PlatformApiException) {
                 if (error.statusCode == 429 || error.isUnavailable) {
                     uiState = uiState.copy(
                         backendStatus = PlatformBackendUiStatus.UNAVAILABLE,
                         endpointVerified = false,
-                        inputMessage = "后台暂时不可用，仍在等待恢复后检查审批。"
+                        inputMessage = "后台暂时不可用，恢复后将继续自动注册。"
                     )
                     nextDelayMillis = error.retryAfterSeconds
                         ?.coerceIn(1L, 60L)
                         ?.times(1_000L)
-                        ?: DEFAULT_POLL_DELAY_MILLIS
+                        ?: AUTO_REGISTRATION_POLL_MILLIS
                 } else {
                     handleConnectionFailure(error)
-                    return
+                    return false
                 }
             } catch (error: Exception) {
                 handleConnectionFailure(error)
-                return
+                return false
             }
         }
     }
@@ -780,7 +803,7 @@ class LightFindingViewModel(
                     PlatformDeviceAuthorization.APPROVED ->
                         DeviceEnrollmentUiStatus.APPROVED
                     PlatformDeviceAuthorization.REVOKED_OR_INVALID ->
-                        DeviceEnrollmentUiStatus.REVOKED
+                        DeviceEnrollmentUiStatus.AUTO_REGISTERING
                     PlatformDeviceAuthorization.ENROLLMENT_REQUIRED ->
                         enrollmentManager.state.value.toUiStatus()
                     PlatformDeviceAuthorization.UNKNOWN -> uiState.enrollmentStatus
@@ -795,7 +818,7 @@ class LightFindingViewModel(
                     inputMessage = when {
                         access.deviceAuthorization ==
                             PlatformDeviceAuthorization.REVOKED_OR_INVALID ->
-                            "设备凭据已失效，请重新登记并等待批准。"
+                            "设备凭据已失效，正在重新自动注册。"
                         access.apiAvailability ==
                             PlatformApiAvailability.CONTRACT_INCOMPATIBLE ->
                             "后台响应与客户端合同不兼容，写操作已关闭。"
@@ -807,6 +830,16 @@ class LightFindingViewModel(
                         else -> uiState.inputMessage
                     }
                 )
+                val shouldRecoverCredentials = uiState.connectionEnabled &&
+                    (
+                        access.deviceAuthorization ==
+                            PlatformDeviceAuthorization.ENROLLMENT_REQUIRED ||
+                            access.deviceAuthorization ==
+                            PlatformDeviceAuthorization.REVOKED_OR_INVALID
+                    ) &&
+                    enrollmentManager.state.value == EnrollmentClientState.Approved &&
+                    connectionJob?.isActive != true
+                if (shouldRecoverCredentials) connectOrEnroll()
                 maybePlanLegacyMigration()
             }
         }
@@ -1184,10 +1217,10 @@ class LightFindingViewModel(
     private fun showWritesClosedMessage() {
         uiState = uiState.copy(
             inputMessage = when {
-                uiState.enrollmentStatus == DeviceEnrollmentUiStatus.WAITING_APPROVAL ->
-                    "设备仍在等待管理员批准，写操作已关闭。"
+                uiState.enrollmentStatus == DeviceEnrollmentUiStatus.AUTO_REGISTERING ->
+                    "设备正在自动注册，请稍候重试。"
                 uiState.enrollmentStatus == DeviceEnrollmentUiStatus.REVOKED ->
-                    "设备凭据已失效，写操作已关闭。"
+                    "设备凭据正在自动刷新，请稍候重试。"
                 uiState.backendStatus == PlatformBackendUiStatus.CONTRACT_INCOMPATIBLE ->
                     "后台合同不兼容，写操作已关闭。"
                 uiState.backendStatus == PlatformBackendUiStatus.UNAVAILABLE ->
@@ -1304,13 +1337,13 @@ private fun EnrollmentClientState.toUiStatus(): DeviceEnrollmentUiStatus {
     return when (this) {
         EnrollmentClientState.NotStarted -> DeviceEnrollmentUiStatus.NOT_STARTED
         EnrollmentClientState.Creating -> DeviceEnrollmentUiStatus.REGISTERING
-        is EnrollmentClientState.Pending -> DeviceEnrollmentUiStatus.WAITING_APPROVAL
+        is EnrollmentClientState.Pending -> DeviceEnrollmentUiStatus.AUTO_REGISTERING
         EnrollmentClientState.Approved -> DeviceEnrollmentUiStatus.APPROVED
         is EnrollmentClientState.Finished -> when (status) {
             EnrollmentStatus.REJECTED -> DeviceEnrollmentUiStatus.REJECTED
             EnrollmentStatus.EXPIRED -> DeviceEnrollmentUiStatus.EXPIRED
             EnrollmentStatus.APPROVED -> DeviceEnrollmentUiStatus.APPROVED
-            EnrollmentStatus.PENDING -> DeviceEnrollmentUiStatus.WAITING_APPROVAL
+            EnrollmentStatus.PENDING -> DeviceEnrollmentUiStatus.AUTO_REGISTERING
         }
     }
 }
@@ -1357,9 +1390,9 @@ private fun Exception.toUserMessage(): String {
             PlatformWriteClosedReason.CONTRACT_INCOMPATIBLE ->
                 "后台合同不兼容，写操作已关闭。"
             PlatformWriteClosedReason.DEVICE_NOT_APPROVED ->
-                "设备尚未批准，写操作已关闭。"
+                "设备正在自动注册，请稍候重试。"
         }
-        is PlatformAuthenticationException -> "设备尚未批准或凭据已失效。"
+        is PlatformAuthenticationException -> "设备凭据尚未就绪，正在自动注册。"
         is PlatformTransportException -> "无法连接 HighTac Platform。"
         is PlatformProtocolException -> "后台响应与客户端合同不兼容。"
         is PlatformApiException -> apiError?.message
@@ -1377,7 +1410,7 @@ private data class MigrationCommitAttempt(
 
 private val SHORT_TAG_PATTERN = Regex("^[0-9A-F]{9}$")
 private const val MIGRATION_PREVIEW_STALE = "MIGRATION_PREVIEW_STALE"
-private const val DEFAULT_POLL_DELAY_MILLIS = 5_000L
+private const val AUTO_REGISTRATION_POLL_MILLIS = 1_000L
 private const val PLATFORM_SYNCING_MESSAGE = "正在同步 HighTac Platform 快照。"
 private const val PLATFORM_SYNCED_MESSAGE = "HighTac Platform 快照已同步。"
 private const val PLATFORM_UNAVAILABLE_MESSAGE = "后台不可用，写操作已关闭。"

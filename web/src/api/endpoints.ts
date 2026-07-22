@@ -132,14 +132,6 @@ export const api = {
   },
   devices: {
     list: (params: Params) => page<AndroidDevice>('/android-devices', params),
-    approve: (id: string, display_name: string) =>
-      apiRequest<AndroidDevice>(`/android-devices/${encodeURIComponent(id)}/approve`, { method: 'POST', body: { display_name }, idempotent: true }),
-    revoke: (id: string) =>
-      apiRequest<AndroidDevice>(`/android-devices/${encodeURIComponent(id)}/revoke`, {
-        method: 'POST',
-        body: { confirmation: 'REVOKE DEVICE' },
-        idempotent: true,
-      }),
     rename: (id: string, display_name: string) =>
       apiRequest<AndroidDevice>(`/android-devices/${encodeURIComponent(id)}/rename`, { method: 'POST', body: { display_name } }),
   },

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App, Button, Form, Input, Modal, Select, Space, Table, Tabs, Tooltip, type TableColumnsType } from 'antd';
-import { ArchiveRestore, Ban, Check, DatabaseBackup, KeyRound, Pencil, Save, ShieldCheck, Smartphone } from 'lucide-react';
+import { Alert, App, Button, Form, Input, Modal, Select, Table, Tabs, Tooltip, type TableColumnsType } from 'antd';
+import { ArchiveRestore, DatabaseBackup, KeyRound, Pencil, Save, ShieldCheck } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/endpoints';
 import type { AdminUser, AndroidDevice, BackupRecord, SiteSettingsPatch } from '../api/types';
@@ -92,48 +92,35 @@ function SiteNetworkSettings() {
 }
 
 function DeviceSettings() {
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [status, setStatus] = useState<string>();
-  const [approveTarget, setApproveTarget] = useState<AndroidDevice>();
   const [renameTarget, setRenameTarget] = useState<AndroidDevice>();
-  const [approveForm] = Form.useForm<{ display_name: string }>();
   const [renameForm] = Form.useForm<{ display_name: string }>();
-  const list = useQuery({ queryKey: ['devices', { page, pageSize, status }], queryFn: () => api.devices.list({ page, page_size: pageSize, status, sort: '-last_seen_at' }), refetchInterval: 10_000 });
-  const approve = useMutation({ mutationFn: ({ id, name }: { id: string; name: string }) => api.devices.approve(id, name), onSuccess: () => { message.success('设备已批准'); setApproveTarget(undefined); approveForm.resetFields(); queryClient.invalidateQueries({ queryKey: ['devices'] }); }, onError: (error) => message.error(error instanceof Error ? error.message : '批准失败') });
+  const list = useQuery({ queryKey: ['devices', { page, pageSize }], queryFn: () => api.devices.list({ page, page_size: pageSize, sort: '-last_seen_at' }), refetchInterval: 10_000 });
   const rename = useMutation({ mutationFn: ({ id, name }: { id: string; name: string }) => api.devices.rename(id, name), onSuccess: () => { message.success('设备名称已更新'); setRenameTarget(undefined); renameForm.resetFields(); queryClient.invalidateQueries({ queryKey: ['devices'] }); }, onError: (error) => message.error(error instanceof Error ? error.message : '重命名失败') });
-  const revoke = useMutation({ mutationFn: api.devices.revoke, onSuccess: () => { message.success('设备访问权限已撤销'); queryClient.invalidateQueries({ queryKey: ['devices'] }); }, onError: (error) => message.error(error instanceof Error ? error.message : '撤销失败') });
-  const confirmRevoke = (device: AndroidDevice) => modal.confirm({ title: '确认撤销 Android 设备？', icon: <Ban size={20} color="#e52020" />, content: `${device.display_name || device.model || device.id} 将立即失去写入与灯光控制权限。`, okText: '确认撤销', okButtonProps: { danger: true }, cancelText: '取消', onOk: () => revoke.mutateAsync(device.id) });
 
   const columns: TableColumnsType<AndroidDevice> = [
     { title: '现场名称', dataIndex: 'display_name', width: 180, render: (value, row) => <span><strong>{value || '未命名设备'}</strong><small className="table-secondary mono">{row.id}</small></span> },
     { title: '设备', key: 'device', width: 200, render: (_, row) => <span>{[row.manufacturer, row.model].filter(Boolean).join(' ') || '未知型号'}<small className="table-secondary">App {row.app_version || '—'}</small></span> },
-    { title: '审批状态', dataIndex: 'status', width: 112, render: (value) => <StatusBadge status={value} /> },
+    { title: '注册状态', dataIndex: 'status', width: 112, render: (value) => <StatusBadge status={value} label={value === 'APPROVED' ? '已自动授权' : value === 'PENDING' ? '注册中' : '历史已停用'} /> },
     { title: '连接', dataIndex: 'online', width: 98, render: (value) => <StatusBadge status={value ? 'ONLINE' : 'OFFLINE'} /> },
     { title: '首次连接', dataIndex: 'first_seen_at', width: 176, render: (value) => formatDateTime(value) },
     { title: '最后在线', dataIndex: 'last_seen_at', width: 176, render: (value) => formatDateTime(value) },
-    { title: '批准时间', dataIndex: 'approved_at', width: 176, render: (value) => formatDateTime(value) },
+    { title: '注册时间', dataIndex: 'approved_at', width: 176, render: (value) => formatDateTime(value) },
     {
-      title: '操作', key: 'actions', width: 128, fixed: 'right', render: (_, row) => <Space size={2}>
-        {row.status === 'PENDING' && <Tooltip title="批准设备"><Button type="text" aria-label={`批准设备 ${row.id}`} icon={<Check size={17} color="#3f8500" />} onClick={() => { setApproveTarget(row); approveForm.setFieldValue('display_name', row.display_name || `${row.manufacturer || ''} ${row.model || ''}`.trim()); }} /></Tooltip>}
-        {row.status === 'APPROVED' && <Tooltip title="修改现场名称"><Button type="text" aria-label={`重命名设备 ${row.id}`} icon={<Pencil size={16} />} onClick={() => { setRenameTarget(row); renameForm.setFieldValue('display_name', row.display_name); }} /></Tooltip>}
-        {row.status === 'APPROVED' && <Tooltip title="撤销访问"><Button type="text" danger aria-label={`撤销设备 ${row.id}`} icon={<Ban size={16} />} onClick={() => confirmRevoke(row)} /></Tooltip>}
-      </Space>,
+      title: '操作', key: 'actions', width: 88, fixed: 'right', render: (_, row) =>
+        <Tooltip title="修改现场名称"><Button type="text" aria-label={`重命名设备 ${row.id}`} icon={<Pencil size={16} />} onClick={() => { setRenameTarget(row); renameForm.setFieldValue('display_name', row.display_name); }} /></Tooltip>,
     },
   ];
 
   return <>
-    <Panel className="filter-panel"><div className="toolbar"><div className="toolbar-main"><Select allowClear className="filter-field" placeholder="全部审批状态" value={status} onChange={(value) => { setStatus(value); setPage(1); }} options={['PENDING', 'APPROVED', 'REVOKED'].map((value) => ({ value, label: <StatusBadge status={value} /> }))} /></div><StatusBadge status="PENDING" label={`待审批 ${list.data?.items.filter((item) => item.status === 'PENDING').length ?? 0}`} /></div></Panel>
+    <Alert className="connection-alert" type="info" showIcon message="Android 设备安装后自动注册并获得完整功能权限，无需人工批准。此处仅用于查看设备和维护现场名称。" />
     <Panel className="panel-table" title={`Android 设备${list.data ? `（${list.data.pagination.total_items}）` : ''}`}>
       {list.isError && <div className="table-error"><QueryError error={list.error} onRetry={() => list.refetch()} /></div>}
-      <div className="table-wrap"><Table<AndroidDevice> rowKey="id" columns={columns} dataSource={list.data?.items || []} loading={list.isLoading} size="small" bordered scroll={{ x: 1260 }} locale={{ emptyText: <EmptyBlock description="暂无 Android 设备" /> }} pagination={{ current: page, pageSize, total: list.data?.pagination.total_items || 0, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (total) => `共 ${total} 台` }} onChange={(pagination) => { setPage(pagination.current || 1); setPageSize(pagination.pageSize || 20); }} /></div>
+      <div className="table-wrap"><Table<AndroidDevice> rowKey="id" columns={columns} dataSource={list.data?.items || []} loading={list.isLoading} size="small" bordered scroll={{ x: 1180 }} locale={{ emptyText: <EmptyBlock description="暂无 Android 设备" /> }} pagination={{ current: page, pageSize, total: list.data?.pagination.total_items || 0, showSizeChanger: true, pageSizeOptions: [20, 50, 100], showTotal: (total) => `共 ${total} 台` }} onChange={(pagination) => { setPage(pagination.current || 1); setPageSize(pagination.pageSize || 20); }} /></div>
     </Panel>
-    <Modal title="批准 Android 设备" open={Boolean(approveTarget)} onCancel={() => setApproveTarget(undefined)} onOk={() => approveForm.submit()} okText="批准设备" cancelText="取消" confirmLoading={approve.isPending}>
-      <div className="device-identity"><Smartphone size={22} /><div><strong>{[approveTarget?.manufacturer, approveTarget?.model].filter(Boolean).join(' ') || '未知设备'}</strong><span className="mono">{approveTarget?.id}</span></div></div>
-      <Form form={approveForm} layout="vertical" requiredMark={false} onFinish={(values) => approveTarget && approve.mutate({ id: approveTarget.id, name: values.display_name })}><Form.Item name="display_name" label="现场名称" rules={[{ required: true, message: '请输入便于识别的现场名称' }, { max: 80 }]}><Input autoFocus placeholder="例如：拣货手机 01" /></Form.Item></Form>
-    </Modal>
     <Modal title="修改设备名称" open={Boolean(renameTarget)} onCancel={() => setRenameTarget(undefined)} onOk={() => renameForm.submit()} okText="保存" cancelText="取消" confirmLoading={rename.isPending}><Form form={renameForm} layout="vertical" requiredMark={false} onFinish={(values) => renameTarget && rename.mutate({ id: renameTarget.id, name: values.display_name })}><Form.Item name="display_name" label="现场名称" rules={[{ required: true }, { max: 80 }]}><Input autoFocus /></Form.Item></Form></Modal>
   </>;
 }

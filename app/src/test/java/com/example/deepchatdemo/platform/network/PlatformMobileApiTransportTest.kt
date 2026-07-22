@@ -78,7 +78,7 @@ class PlatformMobileApiTransportTest {
             PlatformMobileAuthorizationProblem.DEVICE_TOKEN_MISSING,
             error.problem
         )
-        assertTrue(error.message.orEmpty().contains("后台审批"))
+        assertTrue(error.message.orEmpty().contains("自动注册"))
         assertEquals(0, server.requestCount)
         assertFalse(transport.hasApprovedDeviceToken())
     }
@@ -96,7 +96,7 @@ class PlatformMobileApiTransportTest {
             PlatformMobileAuthorizationProblem.DEVICE_TOKEN_REJECTED,
             error.problem
         )
-        assertTrue(error.message.orEmpty().contains("重新批准"))
+        assertTrue(error.message.orEmpty().contains("自动重新注册"))
         assertTrue(transport.hasApprovedDeviceToken())
     }
 

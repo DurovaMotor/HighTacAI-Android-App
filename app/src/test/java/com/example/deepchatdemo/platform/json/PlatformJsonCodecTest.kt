@@ -66,10 +66,27 @@ class PlatformJsonCodecTest {
     @Test
     fun parsesEnrollmentAndRedactsServerSecrets() {
         val created = PlatformJsonCodec.parseDeviceEnrollmentCreated(ENROLLMENT_CREATED_JSON)
+        val directlyApproved = PlatformJsonCodec.parseDeviceEnrollmentCreated(
+            ENROLLMENT_APPROVED_JSON
+        )
+        val replayedApproval = PlatformJsonCodec.parseDeviceEnrollmentCreated(
+            ENROLLMENT_APPROVED_JSON.replace(
+                "\"123456789012345678901234567890123456789012345678\"",
+                "null"
+            )
+        )
+        val expiredReplay = PlatformJsonCodec.parseDeviceEnrollmentCreated(
+            ENROLLMENT_CREATED_JSON.replace("\"PENDING\"", "\"EXPIRED\"")
+        )
         val approved = PlatformJsonCodec.parseDeviceEnrollmentState(ENROLLMENT_APPROVED_JSON)
 
         assertEquals(EnrollmentStatus.PENDING, created.status)
         assertEquals("[REDACTED]", created.pollSecret.toString())
+        assertEquals(EnrollmentStatus.APPROVED, directlyApproved.status)
+        assertEquals(ACTOR_ID, directlyApproved.deviceId.toString())
+        assertEquals(48, directlyApproved.deviceToken?.length)
+        assertNull(replayedApproval.deviceToken)
+        assertEquals(EnrollmentStatus.EXPIRED, expiredReplay.status)
         assertEquals(EnrollmentStatus.APPROVED, approved.status)
         assertEquals("[REDACTED]", approved.deviceToken.toString())
         assertEquals(48, approved.deviceToken?.length)
