@@ -34,6 +34,15 @@ fun String.toBuildConfigString(): String {
     return "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 }
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.isFile) file.inputStream().use(::load)
+}
+
+fun localCloudValue(name: String, defaultValue: String = ""): String {
+    return localProperties.getProperty(name).orEmpty().trim().ifBlank { defaultValue }
+}
+
 val releaseSigningPropertiesFile = project.file("release-signing.properties")
 val releaseSigningProperties = Properties().apply {
     if (releaseSigningPropertiesFile.isFile) {
@@ -91,8 +100,42 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "OPENAI_MODEL", "gpt-5.5".toBuildConfigString())
+        buildConfigField(
+            "String",
+            "OPENAI_BASE_URL",
+            localCloudValue("HIGHTAC_OPENAI_BASE_URL").toBuildConfigString()
+        )
+        buildConfigField(
+            "String",
+            "OPENAI_API_KEY",
+            localCloudValue("HIGHTAC_OPENAI_API_KEY").toBuildConfigString()
+        )
+        buildConfigField(
+            "String",
+            "OPENAI_MODEL",
+            localCloudValue("HIGHTAC_OPENAI_MODEL", "gpt-5.5").toBuildConfigString()
+        )
         buildConfigField("String", "OPENAI_REASONING_EFFORT", "xhigh".toBuildConfigString())
+        buildConfigField(
+            "String",
+            "JIANDAOYUN_BASE_URL",
+            localCloudValue("HIGHTAC_JIANDAOYUN_BASE_URL").toBuildConfigString()
+        )
+        buildConfigField(
+            "String",
+            "JIANDAOYUN_API_KEY",
+            localCloudValue("HIGHTAC_JIANDAOYUN_API_KEY").toBuildConfigString()
+        )
+        buildConfigField(
+            "String",
+            "JIANDAOYUN_APP_ID",
+            localCloudValue("HIGHTAC_JIANDAOYUN_APP_ID").toBuildConfigString()
+        )
+        buildConfigField(
+            "String",
+            "JIANDAOYUN_ENTRY_ID",
+            localCloudValue("HIGHTAC_JIANDAOYUN_ENTRY_ID").toBuildConfigString()
+        )
     }
 
     buildFeatures {

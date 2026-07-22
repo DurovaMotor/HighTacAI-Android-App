@@ -2,8 +2,6 @@ package com.example.deepchatdemo.ui.price
 
 import com.example.deepchatdemo.price.PriceLookupResult
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PriceResultDetailSheetTest {
@@ -38,7 +36,7 @@ class PriceResultDetailSheetTest {
     }
 
     @Test
-    fun originalSourceLabelsArePreservedInSeparateSection() {
+    fun rawSourceFieldsRemainInModelButAreNotRendered() {
         val sections = buildPriceDetailSections(
             PriceLookupResult(
                 id = "part-2",
@@ -50,17 +48,8 @@ class PriceResultDetailSheetTest {
             )
         )
 
-        assertEquals(2, sections.size)
-        val rawSection = sections.last()
-        assertEquals("原始详细字段", rawSection.title)
-        assertEquals(
-            listOf(
-                PriceDetailRow("销售单价/元（标准价）", "100"),
-                PriceDetailRow("供应商备注", "复核后发货")
-            ),
-            rawSection.rows
-        )
-        assertTrue(rawSection.rows.any { it.label == "供应商备注" })
-        assertFalse(rawSection.rows.any { it.label.isBlank() })
+        assertEquals(1, sections.size)
+        assertEquals("配件详细信息", sections.single().title)
+        assertEquals(18, sections.single().rows.size)
     }
 }

@@ -30,7 +30,8 @@ data class PriceLookupUiState(
     val scannedPageCount: Int = 0,
     val scannedRowCount: Int = 0,
     val sourceLabel: String = "",
-    val cacheAgeLabel: String? = null
+    val cacheAgeLabel: String? = null,
+    val initialRefreshState: InitialPriceRefreshState = InitialPriceRefreshState.Pending
 )
 
 data class PriceLookupResult(

@@ -1,9 +1,11 @@
 # HighTac AI
 
-HighTac AI is a single repository for the Android parts assistant and the
-local-network sound-and-light finding platform. The platform keeps products,
-light-strip bindings, station state, commands, Android devices, and audit logs
-in one Windows-hosted backend so every phone sees the same data.
+HighTac AI is a single repository for the Android parts assistant, direct-cloud
+price lookup, and the local-network sound-and-light finding platform. Android
+calls the configured OpenAI relay and JianDaoYun directly over HTTPS. The
+Windows platform remains the source of truth only for products used by light
+finding, bindings, tags, stations, light commands, realtime events, and audit
+logs.
 
 The coordinated platform release version is `2.0.0`; its expected immutable Git
 tag is `v2.0.0`. Version `1.0.0` is retained only as the Windows upgrade-test
@@ -66,19 +68,10 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 
 ## Android Setup
 
-Android never receives OpenAI or JianDaoYun API keys. The current build only
-needs these non-secret JianDaoYun identifiers in `local.properties`:
-
-```properties
-JIANDAOYUN_APP_ID=your_jiandaoyun_app_id
-JIANDAOYUN_ENTRY_ID=your_jiandaoyun_entry_id
-```
-
-They are public routing identifiers, not credentials. Keep them configurable and
-do not commit `local.properties`. Android calls the HighTac backend proxy; it
-must not call OpenAI or JianDaoYun with provider credentials.
-
-Provider credentials belong only in the protected backend runtime environment:
+The current Android build embeds its direct-cloud configuration from the
+Git-ignored root `local.properties` into `BuildConfig`. The user accepts that an
+APK can be reverse engineered; never expose these values in UI, logs, snapshots,
+Git, or build output. Required property names are:
 
 ```text
 HIGHTAC_OPENAI_API_KEY
@@ -90,12 +83,18 @@ HIGHTAC_JIANDAOYUN_ENTRY_ID
 HIGHTAC_JIANDAOYUN_BASE_URL
 ```
 
-For an installed Windows platform these values are rendered into the ACL-locked
-`C:\ProgramData\HighTac\Platform\config\.env`; never commit that file or print
-its secrets in logs. Any OpenAI or JianDaoYun key that was embedded in an older
-APK must be revoked and rotated at the provider before 2.0.0 deployment. Put
-only the replacement keys in the protected backend, then verify the final APK
-secret scan is clean.
+For an installed Windows platform the same values are available in the
+ACL-locked `C:\ProgramData\HighTac\Platform\config\.env`. Import the effective
+configuration without printing values:
+
+```powershell
+# Run from an administrator PowerShell because the source file is ACL protected.
+.\tools\Import-AndroidDirectCloudConfig.ps1
+```
+
+The tool also writes `sdk.dir`, applies the Windows service's effective defaults
+when optional environment entries are omitted, and reports only field counts.
+`local.properties.example` documents the shape without real credentials.
 
 ## Build
 
@@ -122,8 +121,8 @@ See `TEST_CHECKLIST.md` for manual device testing steps and logcat collection ti
 ## Local Platform
 
 The current field network is `Durova-5G`. The Windows host has static address
-`192.168.1.105/24`; Android phones and the eStation base station must be on the
-same LAN.
+`192.168.1.105/24`; Android phones need this LAN only for light-finding
+functions. Advisor and price lookup continue to work on any Internet connection.
 
 | Service | Address |
 | --- | --- |
@@ -171,10 +170,11 @@ npm run dev -- --host 0.0.0.0
 ```
 
 The first administrator is `Adam`; the initial password must be changed after
-the first login. Android does not use an account or device registration: App
-operations use the trusted-LAN anonymous Android actor without an approval step
-or bearer token. Administrator-only APIs and browser writes remain protected by
-the administrator session and CSRF checks.
+the first login. Android does not use an account or device registration for
+light-finding: trusted-LAN operations use the anonymous Android actor without an
+approval step or bearer token. Advisor/price errors are independent from Windows
+reachability. Administrator-only APIs and browser writes remain protected by the
+administrator session and CSRF checks.
 
 When a local VPN sets `HTTP_PROXY`/`HTTPS_PROXY`, bypass it for LAN diagnostics:
 
@@ -233,5 +233,7 @@ Windows Sandbox install/upgrade/uninstall rehearsal.
 
 Architecture and implementation decisions are documented in
 `docs/hightac-web-platform-architecture-plan.md` and
-`docs/hightac-web-ui-design-system.md`. Day-to-day startup, zero-registration Android access, backup,
-and troubleshooting steps are in `docs/hightac-platform-operations.md`.
+`docs/hightac-web-ui-design-system.md`; direct-cloud routing is recorded in
+`docs/adr/0008-android-direct-cloud-access.md`. Day-to-day startup,
+zero-registration Android access, backup, and troubleshooting steps are in
+`docs/hightac-platform-operations.md`.

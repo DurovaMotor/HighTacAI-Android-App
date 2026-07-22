@@ -21,7 +21,7 @@ from hightac_platform.domain.errors import (
 router = APIRouter(prefix="/mobile", tags=["Mobile proxy"])
 
 
-@router.post("/openai/responses")
+@router.post("/openai/responses", deprecated=True)
 async def proxy_openai_responses(
     request: Request,
     _actor: MobileProxyDeviceDependency,
@@ -39,7 +39,7 @@ async def proxy_openai_responses(
     )
 
 
-@router.post("/jiandaoyun/v5/app/entry/list")
+@router.post("/jiandaoyun/v5/app/entry/list", deprecated=True)
 async def proxy_jiandaoyun_entry_list(
     request: Request,
     _actor: MobileProxyDeviceDependency,
@@ -47,7 +47,7 @@ async def proxy_jiandaoyun_entry_list(
     return await _proxy_jiandaoyun("v5/app/entry/list", request)
 
 
-@router.post("/jiandaoyun/v5/app/entry/widget/list")
+@router.post("/jiandaoyun/v5/app/entry/widget/list", deprecated=True)
 async def proxy_jiandaoyun_widget_list(
     request: Request,
     _actor: MobileProxyDeviceDependency,
@@ -55,7 +55,7 @@ async def proxy_jiandaoyun_widget_list(
     return await _proxy_jiandaoyun("v5/app/entry/widget/list", request)
 
 
-@router.post("/jiandaoyun/v5/app/entry/data/list")
+@router.post("/jiandaoyun/v5/app/entry/data/list", deprecated=True)
 async def proxy_jiandaoyun_data_list(
     request: Request,
     _actor: MobileProxyDeviceDependency,

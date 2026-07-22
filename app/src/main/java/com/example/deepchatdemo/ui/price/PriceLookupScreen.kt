@@ -25,10 +25,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.ImageLoader
+import com.example.deepchatdemo.cloud.JianDaoYunImageUrlPolicy
+import com.example.deepchatdemo.cloud.newJianDaoYunImageHttpClient
 import com.example.deepchatdemo.light.domain.LightBinding
-import com.example.deepchatdemo.platform.config.SharedPreferencesPlatformConfigStore
-import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
-import com.example.deepchatdemo.platform.network.newPlatformImageHttpClient
+import com.example.deepchatdemo.price.InitialPriceRefreshState
 import com.example.deepchatdemo.price.PriceFilterColumn
 import com.example.deepchatdemo.price.PriceLookupResult
 import com.example.deepchatdemo.price.PriceLookupUiState
@@ -52,12 +52,12 @@ fun PriceLookupScreen(
 ) {
     var selectedResult by remember { mutableStateOf<PriceLookupResult?>(null) }
     val applicationContext = LocalContext.current.applicationContext
-    val imageUrlResolver = remember(applicationContext) {
-        PlatformImageUrlResolver(SharedPreferencesPlatformConfigStore(applicationContext))
+    val imageUrlPolicy = remember(applicationContext) {
+        JianDaoYunImageUrlPolicy()
     }
-    val imageLoader = remember(applicationContext, imageUrlResolver) {
+    val imageLoader = remember(applicationContext, imageUrlPolicy) {
         ImageLoader.Builder(applicationContext)
-            .okHttpClient { newPlatformImageHttpClient(imageUrlResolver) }
+            .okHttpClient { newJianDaoYunImageHttpClient(imageUrlPolicy) }
             .build()
     }
     DisposableEffect(imageLoader) {
@@ -73,7 +73,7 @@ fun PriceLookupScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            imageUrlResolver = imageUrlResolver,
+            imageUrlPolicy = imageUrlPolicy,
             imageLoader = imageLoader,
             resolveImageUrl = resolveImageUrl,
             onRetrySearch = onRetrySearch,
@@ -98,7 +98,7 @@ fun PriceLookupScreen(
     selectedResult?.let { item ->
         PriceResultDetailSheet(
             item = item,
-            imageUrlResolver = imageUrlResolver,
+            imageUrlPolicy = imageUrlPolicy,
             imageLoader = imageLoader,
             resolveImageUrl = resolveImageUrl,
             onDismissRequest = { selectedResult = null }
@@ -110,7 +110,7 @@ fun PriceLookupScreen(
 private fun PriceResultContent(
     uiState: PriceLookupUiState,
     modifier: Modifier = Modifier,
-    imageUrlResolver: PlatformImageUrlResolver,
+    imageUrlPolicy: JianDaoYunImageUrlPolicy,
     imageLoader: ImageLoader,
     resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
     onRetrySearch: () -> Unit,
@@ -136,7 +136,7 @@ private fun PriceResultContent(
             uiState.errorMessage != null -> {
                 PriceStateCard(
                     title = uiState.errorMessage,
-                    message = "请检查网络、简道云接口配置或 API Key 后重试。本页不会使用本地配件库兜底。",
+                    message = "请检查网络或简道云直连配置后重试；已有本地缓存不会被清除。",
                     actionText = "重试查询",
                     onAction = onRetrySearch,
                     modifier = Modifier.fillMaxWidth()
@@ -155,13 +155,14 @@ private fun PriceResultContent(
                             scannedPageCount = uiState.scannedPageCount,
                             scannedRowCount = uiState.scannedRowCount,
                             sourceLabel = uiState.sourceLabel,
-                            cacheAgeLabel = uiState.cacheAgeLabel
+                            cacheAgeLabel = uiState.cacheAgeLabel,
+                            initialRefreshState = uiState.initialRefreshState
                         )
                     }
                     items(uiState.results, key = { it.id }) { item ->
                         PriceResultCard(
                             item = item,
-                            imageUrlResolver = imageUrlResolver,
+                            imageUrlPolicy = imageUrlPolicy,
                             imageLoader = imageLoader,
                             resolveImageUrl = resolveImageUrl,
                             lightBinding = lightBindingForCode(item.code),
@@ -197,11 +198,12 @@ private fun buildInitialGuide(uiState: PriceLookupUiState): String {
         uiState.cacheAgeLabel?.takeIf { it.isNotBlank() }?.let { add(it) }
         if (uiState.scannedRowCount > 0) add("已索引 ${uiState.scannedRowCount} 条")
     }.joinToString(" · ")
+    val initialRefreshStatus = uiState.initialRefreshState.displayText()
 
     return if (cacheStatus.isBlank()) {
-        priceInitialGuide
+        "$priceInitialGuide\n\n$initialRefreshStatus"
     } else {
-        "$priceInitialGuide\n\n本地数据：$cacheStatus"
+        "$priceInitialGuide\n\n$initialRefreshStatus\n本地数据：$cacheStatus"
     }
 }
 
@@ -212,7 +214,8 @@ private fun ResultSummaryCard(
     scannedPageCount: Int,
     scannedRowCount: Int,
     sourceLabel: String,
-    cacheAgeLabel: String?
+    cacheAgeLabel: String?,
+    initialRefreshState: InitialPriceRefreshState
 ) {
     PriceGlassPanel(
         modifier = Modifier.fillMaxWidth(),
@@ -237,6 +240,7 @@ private fun ResultSummaryCard(
                 if (sourceLabel.isNotBlank()) add(sourceLabel)
                 cacheAgeLabel?.takeIf { it.isNotBlank() }?.let { add(it) }
                 if (!isSearching && scannedRowCount > 0) add("已索引 $scannedRowCount 条")
+                add(initialRefreshState.displayText())
             }.joinToString(" · ")
             if (detailText.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
@@ -250,4 +254,15 @@ private fun ResultSummaryCard(
             }
         }
     }
+}
+
+private fun InitialPriceRefreshState.displayText(): String = when (this) {
+    InitialPriceRefreshState.Pending -> "首次数据同步：准备中"
+    InitialPriceRefreshState.AlreadyCompleted -> "首次数据同步：已完成"
+    is InitialPriceRefreshState.Running ->
+        "首次数据同步：后台进行中（已读取 $fetchedRowCount 条 / $pageCount 页）"
+    is InitialPriceRefreshState.Succeeded ->
+        "首次数据同步：已完成（$fetchedRowCount 条 / $pageCount 页）"
+    InitialPriceRefreshState.Failed ->
+        "首次数据同步：本次失败，已保留旧缓存；下次启动会重试"
 }

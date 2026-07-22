@@ -1,8 +1,5 @@
 package com.example.deepchatdemo.price
 
-import com.example.deepchatdemo.platform.config.PlatformEndpointProvider
-import com.example.deepchatdemo.platform.config.PlatformUrlValidator
-import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
@@ -15,7 +12,7 @@ class PriceLookupCacheStoreTest {
     @Test
     fun savesAndLoadsSnapshotWithSearchValues() {
         withTempCache { cacheFile ->
-            val store = PriceLookupCacheStore(cacheFile, imageUrlResolver())
+            val store = PriceLookupCacheStore(cacheFile)
             val snapshot = PriceLookupCachedSnapshot(
                 entryId = "entry-a",
                 entryName = "产品信息",
@@ -60,7 +57,7 @@ class PriceLookupCacheStoreTest {
     @Test
     fun loadIgnoresSnapshotFromDifferentEntry() {
         withTempCache { cacheFile ->
-            val store = PriceLookupCacheStore(cacheFile, imageUrlResolver())
+            val store = PriceLookupCacheStore(cacheFile)
             store.save(
                 PriceLookupCachedSnapshot(
                     entryId = "entry-a",
@@ -98,7 +95,7 @@ class PriceLookupCacheStoreTest {
                 """.trimIndent(),
                 Charsets.UTF_8
             )
-            val store = PriceLookupCacheStore(cacheFile, imageUrlResolver())
+            val store = PriceLookupCacheStore(cacheFile)
 
             val loaded = requireNotNull(store.load("entry-a"))
 
@@ -132,7 +129,7 @@ class PriceLookupCacheStoreTest {
                 """.trimIndent(),
                 Charsets.UTF_8
             )
-            val store = PriceLookupCacheStore(cacheFile, imageUrlResolver())
+            val store = PriceLookupCacheStore(cacheFile)
 
             val loaded = requireNotNull(store.load("entry-a"))
 
@@ -141,13 +138,6 @@ class PriceLookupCacheStoreTest {
             assertFalse(persisted.contains("image_url"))
             assertFalse(persisted.contains("expired-token"))
         }
-    }
-
-    private fun imageUrlResolver(): PlatformImageUrlResolver {
-        val endpoint = PlatformUrlValidator.requireForWifiProduction(
-            "http://192.168.1.105:8088"
-        )
-        return PlatformImageUrlResolver(PlatformEndpointProvider { endpoint })
     }
 
     private fun withTempCache(block: (File) -> Unit) {

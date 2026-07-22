@@ -1,0 +1,10 @@
+# Copy to local.properties or run tools/Import-AndroidDirectCloudConfig.ps1.
+# Never commit real credentials.
+sdk.dir=C:/Users/your-user/AppData/Local/Android/Sdk
+HIGHTAC_OPENAI_API_KEY=
+HIGHTAC_OPENAI_BASE_URL=https://relay.example/v1
+HIGHTAC_OPENAI_MODEL=gpt-5.5
+HIGHTAC_JIANDAOYUN_API_KEY=
+HIGHTAC_JIANDAOYUN_APP_ID=
+HIGHTAC_JIANDAOYUN_ENTRY_ID=
+HIGHTAC_JIANDAOYUN_BASE_URL=https://api.jiandaoyun.com/api

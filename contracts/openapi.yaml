@@ -1421,10 +1421,15 @@ paths:
           $ref: "#/components/responses/ServiceUnavailable"
   /mobile/openai/responses:
     post:
+      deprecated: true
       tags: [Mobile proxy]
       operationId: proxyMobileOpenAiResponses
       summary: Proxy one non-streaming OpenAI-compatible Responses request.
       description: |
+        Deprecated compatibility route for rollback to legacy APKs. Current
+        Android builds call the configured OpenAI relay directly and never use
+        this Windows route.
+
         No Android device token is required. The backend supplies the upstream
         Authorization header, overwrites `model` with the configured allowlisted
         model, and forces `stream` to false. The upstream API key is never
@@ -1474,10 +1479,14 @@ paths:
           $ref: "#/components/responses/GatewayTimeout"
   /mobile/jiandaoyun/v5/app/entry/list:
     post:
+      deprecated: true
       tags: [Mobile proxy]
       operationId: proxyMobileJianDaoYunEntryList
       summary: List forms in the configured JianDaoYun application.
       description: |
+        Deprecated compatibility route for rollback to legacy APKs. Current
+        Android builds call JianDaoYun directly and never use this Windows route.
+
         The backend injects the upstream Authorization header and configured
         `app_id`. Client-supplied application or form identifiers are ignored.
       security: []
@@ -1525,10 +1534,14 @@ paths:
           $ref: "#/components/responses/GatewayTimeout"
   /mobile/jiandaoyun/v5/app/entry/widget/list:
     post:
+      deprecated: true
       tags: [Mobile proxy]
       operationId: proxyMobileJianDaoYunWidgetList
       summary: List widgets in the configured JianDaoYun form.
       description: |
+        Deprecated compatibility route for rollback to legacy APKs. Current
+        Android builds call JianDaoYun directly and never use this Windows route.
+
         The backend injects the upstream Authorization header and overwrites
         `app_id` and `entry_id` with server-side configuration.
       security: []
@@ -1576,10 +1589,14 @@ paths:
           $ref: "#/components/responses/GatewayTimeout"
   /mobile/jiandaoyun/v5/app/entry/data/list:
     post:
+      deprecated: true
       tags: [Mobile proxy]
       operationId: proxyMobileJianDaoYunDataList
       summary: List records in the configured JianDaoYun form.
       description: |
+        Deprecated compatibility route for rollback to legacy APKs. Current
+        Android builds call JianDaoYun directly and never use this Windows route.
+
         The backend injects the upstream Authorization header and overwrites
         `app_id` and `entry_id` with server-side configuration.
       security: []

@@ -1,11 +1,9 @@
 package com.example.deepchatdemo.price
 
-import com.example.deepchatdemo.platform.config.PlatformEndpointProvider
-import com.example.deepchatdemo.platform.config.PlatformUrlValidator
-import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
-import com.example.deepchatdemo.platform.network.PlatformMobileApiResponse
-import com.example.deepchatdemo.platform.network.PlatformMobileApiRoute
-import com.example.deepchatdemo.platform.network.PlatformMobileApiTransport
+import com.example.deepchatdemo.cloud.DirectCloudResponse
+import com.example.deepchatdemo.cloud.JianDaoYunApiRoute
+import com.example.deepchatdemo.cloud.JianDaoYunImageUrlPolicy
+import com.example.deepchatdemo.cloud.JianDaoYunTransport
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -22,21 +20,21 @@ class JianDaoYunPriceApiImageTest {
     fun freshImageLookupUsesExactCodeFilterAndPrefersMatchingRecordId() = runBlocking {
         val transport = imageTransport(
             rows = JSONArray()
-                .put(row("row-other", "ABC-001", "/api/v1/mobile/media/token-other"))
-                .put(row("row-target", "ABC-001", "/api/v1/mobile/media/token-target"))
+                .put(row("row-other", "ABC-001", "https://files.jiandaoyun.com/token-other"))
+                .put(row("row-target", "ABC-001", "https://files.jiandaoyun.com/token-target"))
         )
         val api = JianDaoYunPriceApi(
             transport = transport,
-            imageUrlResolver = imageUrlResolver()
+            imageUrlPolicy = JianDaoYunImageUrlPolicy()
         )
 
         val imageUrl = api.fetchFreshImageUrl(itemId = "row-target", code = "ABC-001")
 
         assertEquals(
-            "http://192.168.1.105:8088/api/v1/mobile/media/token-target",
+            "https://files.jiandaoyun.com/token-target",
             imageUrl
         )
-        val request = transport.requests.last { it.first == PlatformMobileApiRoute.JIANDAOYUN_DATA_LIST }.second
+        val request = transport.requests.last { it.first == JianDaoYunApiRoute.DATA_LIST }.second
         assertEquals(10, request.getInt("limit"))
         assertFalse(request.has("app_id"))
         val fields = request.getJSONArray("fields").stringValues()
@@ -54,12 +52,12 @@ class JianDaoYunPriceApiImageTest {
     fun freshImageLookupRejectsAmbiguousExactCodeMatches() = runBlocking {
         val transport = imageTransport(
             rows = JSONArray()
-                .put(row("row-a", "ABC-001", "/api/v1/mobile/media/token-a"))
-                .put(row("row-b", "ABC-001", "/api/v1/mobile/media/token-b"))
+                .put(row("row-a", "ABC-001", "https://files.jiandaoyun.com/token-a"))
+                .put(row("row-b", "ABC-001", "https://files.jiandaoyun.com/token-b"))
         )
         val api = JianDaoYunPriceApi(
             transport = transport,
-            imageUrlResolver = imageUrlResolver()
+            imageUrlPolicy = JianDaoYunImageUrlPolicy()
         )
 
         assertEquals("", api.fetchFreshImageUrl(itemId = "missing-row", code = "ABC-001"))
@@ -69,16 +67,16 @@ class JianDaoYunPriceApiImageTest {
     fun freshImageLookupValidatesRecordCodeBeforeUsingId() = runBlocking {
         val transport = imageTransport(
             rows = JSONArray()
-                .put(row("row-target", "WRONG-001", "/api/v1/mobile/media/wrong-token"))
-                .put(row("row-correct", "ABC-001", "/api/v1/mobile/media/correct-token"))
+                .put(row("row-target", "WRONG-001", "https://files.jiandaoyun.com/wrong-token"))
+                .put(row("row-correct", "ABC-001", "https://files.jiandaoyun.com/correct-token"))
         )
         val api = JianDaoYunPriceApi(
             transport = transport,
-            imageUrlResolver = imageUrlResolver()
+            imageUrlPolicy = JianDaoYunImageUrlPolicy()
         )
 
         assertEquals(
-            "http://192.168.1.105:8088/api/v1/mobile/media/correct-token",
+            "https://files.jiandaoyun.com/correct-token",
             api.fetchFreshImageUrl(itemId = "row-target", code = "ABC-001")
         )
     }
@@ -86,13 +84,13 @@ class JianDaoYunPriceApiImageTest {
     @Test
     fun freshImageLookupDoesNotClaimUniquenessWhenTheResponseHitsItsLimit() = runBlocking {
         val rows = JSONArray()
-            .put(row("row-correct", "ABC-001", "/api/v1/mobile/media/correct-token"))
+            .put(row("row-correct", "ABC-001", "https://files.jiandaoyun.com/correct-token"))
         repeat(9) { index ->
-            rows.put(row("row-other-$index", "OTHER-$index", "/api/v1/mobile/media/other-$index"))
+            rows.put(row("row-other-$index", "OTHER-$index", "https://files.jiandaoyun.com/other-$index"))
         }
         val api = JianDaoYunPriceApi(
             transport = imageTransport(rows),
-            imageUrlResolver = imageUrlResolver()
+            imageUrlPolicy = JianDaoYunImageUrlPolicy()
         )
 
         assertEquals("", api.fetchFreshImageUrl(itemId = "missing-row", code = "ABC-001"))
@@ -103,12 +101,12 @@ class JianDaoYunPriceApiImageTest {
         val transport = imageTransport(rows = JSONArray())
         val api = JianDaoYunPriceApi(
             transport = transport,
-            imageUrlResolver = imageUrlResolver()
+            imageUrlPolicy = JianDaoYunImageUrlPolicy()
         )
 
         api.search(filters = emptyList(), forceRefresh = true)
 
-        val request = transport.requests.last { it.first == PlatformMobileApiRoute.JIANDAOYUN_DATA_LIST }.second
+        val request = transport.requests.last { it.first == JianDaoYunApiRoute.DATA_LIST }.second
         val fields = request.getJSONArray("fields").stringValues()
         assertTrue(CODE_FIELD in fields)
         assertFalse(IMAGE_FIELD in fields)
@@ -118,7 +116,7 @@ class JianDaoYunPriceApiImageTest {
     private fun imageTransport(rows: JSONArray): RecordingPriceTransport {
         return RecordingPriceTransport { route ->
             val body = when (route) {
-                PlatformMobileApiRoute.JIANDAOYUN_ENTRY_LIST -> JSONObject()
+                JianDaoYunApiRoute.ENTRY_LIST -> JSONObject()
                     .put(
                         "forms",
                         JSONArray().put(
@@ -127,17 +125,16 @@ class JianDaoYunPriceApiImageTest {
                                 .put("name", "产品信息")
                         )
                     )
-                PlatformMobileApiRoute.JIANDAOYUN_WIDGET_LIST -> JSONObject()
+                JianDaoYunApiRoute.WIDGET_LIST -> JSONObject()
                     .put(
                         "widgets",
                         JSONArray()
                             .put(widget(CODE_FIELD, "产品编码", "text"))
                             .put(widget(IMAGE_FIELD, "产品图片", "image"))
                     )
-                PlatformMobileApiRoute.JIANDAOYUN_DATA_LIST -> JSONObject().put("data", rows)
-                PlatformMobileApiRoute.OPENAI_RESPONSES -> error("Unexpected OpenAI route")
+                JianDaoYunApiRoute.DATA_LIST -> JSONObject().put("data", rows)
             }
-            PlatformMobileApiResponse(200, body.toString(), null)
+            DirectCloudResponse(200, body.toString(), null)
         }
     }
 
@@ -160,13 +157,6 @@ class JianDaoYunPriceApiImageTest {
             )
     }
 
-    private fun imageUrlResolver(): PlatformImageUrlResolver {
-        val endpoint = PlatformUrlValidator.requireForWifiProduction(
-            "http://192.168.1.105:8088"
-        )
-        return PlatformImageUrlResolver(PlatformEndpointProvider { endpoint })
-    }
-
     private companion object {
         const val CODE_FIELD = "_widget_code"
         const val IMAGE_FIELD = "_widget_image"
@@ -174,16 +164,14 @@ class JianDaoYunPriceApiImageTest {
 }
 
 private class RecordingPriceTransport(
-    private val responder: (PlatformMobileApiRoute) -> PlatformMobileApiResponse
-) : PlatformMobileApiTransport {
-    val requests = mutableListOf<Pair<PlatformMobileApiRoute, JSONObject>>()
-
-    override fun hasApprovedDeviceToken(): Boolean = true
+    private val responder: (JianDaoYunApiRoute) -> DirectCloudResponse
+) : JianDaoYunTransport {
+    val requests = mutableListOf<Pair<JianDaoYunApiRoute, JSONObject>>()
 
     override fun postJson(
-        route: PlatformMobileApiRoute,
+        route: JianDaoYunApiRoute,
         jsonBody: String
-    ): PlatformMobileApiResponse {
+    ): DirectCloudResponse {
         requests += route to JSONObject(jsonBody)
         return responder(route)
     }

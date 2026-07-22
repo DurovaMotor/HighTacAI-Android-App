@@ -7,21 +7,24 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.deepchatdemo.platform.network.PlatformMobileAuthorizationException
+import com.example.deepchatdemo.HighTacApplication
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class PriceLookupViewModel(
-    private val repository: PriceLookupRepository
+    private val repository: PriceLookupRepository,
+    private val initialPriceRefreshCoordinator: InitialPriceRefreshCoordinator? = null
 ) : ViewModel() {
     var uiState by mutableStateOf(PriceLookupUiState())
         private set
 
     init {
         prepareLocalCache()
+        observeInitialRefresh()
     }
 
     private fun prepareLocalCache() {
@@ -114,6 +117,25 @@ class PriceLookupViewModel(
 
     fun refreshSearch() {
         startSearch(forceRefresh = true)
+    }
+
+    private fun observeInitialRefresh() {
+        val coordinator = initialPriceRefreshCoordinator ?: return
+        viewModelScope.launch {
+            coordinator.state.collectLatest { state ->
+                uiState = uiState.copy(initialRefreshState = state)
+                if (state is InitialPriceRefreshState.Succeeded) {
+                    repository.prepareLocalCache()?.let { status ->
+                        uiState = uiState.copy(
+                            scannedPageCount = status.pageCount,
+                            scannedRowCount = status.fetchedRowCount,
+                            sourceLabel = status.sourceLabel,
+                            cacheAgeLabel = status.cacheAgeMs.toCacheAgeLabel()
+                        )
+                    }
+                }
+            }
+        }
     }
 
     suspend fun resolveImageUrl(
@@ -233,8 +255,12 @@ class PriceLookupViewModel(
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
                     if (modelClass.isAssignableFrom(PriceLookupViewModel::class.java)) {
+                        val app = context.applicationContext as? HighTacApplication
                         return PriceLookupViewModel(
-                            repository = PriceLookupRepository.fromContext(context)
+                            repository = PriceLookupRepository.fromContext(context),
+                            initialPriceRefreshCoordinator = app
+                                ?.appServices
+                                ?.initialPriceRefreshCoordinator
                         ) as T
                     }
                     throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
@@ -269,8 +295,6 @@ private fun Long.toCacheAgeLabel(): String {
 
 private fun Throwable.toPriceLookupErrorMessage(): String {
     return when (this) {
-        is PlatformMobileAuthorizationException ->
-            message ?: "后台暂时无法处理请求，请稍候重试。"
         is JianDaoYunPriceApi.JianDaoYunHttpException -> toPriceLookupErrorMessage()
         else -> message
             ?.takeIf { it.isNotBlank() }
@@ -283,8 +307,8 @@ private fun JianDaoYunPriceApi.JianDaoYunHttpException.toPriceLookupErrorMessage
     val detail = apiMessage.takeIf { it.isNotBlank() }?.let { "：$it" }.orEmpty()
     return when (statusCode) {
         400, 422 -> "简道云请求参数错误$detail"
-        401, 403 -> "后台简道云服务未获授权，请联系管理员检查平台配置$detail"
-        404 -> "后台简道云表单配置不存在，请联系管理员检查平台设置$detail"
+        401, 403 -> "简道云直连未获授权，请联系管理员检查应用构建配置$detail"
+        404 -> "简道云表单配置不存在，请联系管理员检查应用构建配置$detail"
         408 -> "简道云请求超时，请稍后重试$detail"
         429 -> "简道云请求过于频繁，请稍后重试$detail"
         in 500..599 -> "简道云服务暂时不可用，请稍后重试$detail"

@@ -8,6 +8,9 @@
         domain="sharedpref"
         path="light_station_config.xml" />
     <exclude
+        domain="sharedpref"
+        path="price_initial_refresh_v1.xml" />
+    <exclude
         domain="database"
         path="hightac-platform-read-cache.db" />
     <exclude

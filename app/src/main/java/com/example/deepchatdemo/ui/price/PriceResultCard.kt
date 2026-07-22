@@ -42,15 +42,15 @@ import coil.ImageLoader
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import com.example.deepchatdemo.cloud.JianDaoYunImageUrlPolicy
 import com.example.deepchatdemo.light.domain.LightBinding
-import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
 import com.example.deepchatdemo.price.PriceLookupResult
 import kotlinx.coroutines.CancellationException
 
 @Composable
 internal fun PriceResultCard(
     item: PriceLookupResult,
-    imageUrlResolver: PlatformImageUrlResolver,
+    imageUrlPolicy: JianDaoYunImageUrlPolicy,
     imageLoader: ImageLoader,
     resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
     modifier: Modifier = Modifier,
@@ -79,7 +79,7 @@ internal fun PriceResultCard(
                 ) {
                     ProductImage(
                         item = item,
-                        imageUrlResolver = imageUrlResolver,
+                        imageUrlPolicy = imageUrlPolicy,
                         imageLoader = imageLoader,
                         resolveImageUrl = resolveImageUrl,
                         contentDescription = item.nameCn.ifBlank { "产品图片" },
@@ -186,7 +186,7 @@ internal fun PriceResultCard(
 @Composable
 internal fun ProductImage(
     item: PriceLookupResult,
-    imageUrlResolver: PlatformImageUrlResolver,
+    imageUrlPolicy: JianDaoYunImageUrlPolicy,
     imageLoader: ImageLoader,
     resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
     contentDescription: String,
@@ -209,11 +209,11 @@ internal fun ProductImage(
             )
             ""
         }
-        val safeUrl = imageUrlResolver.sanitize(resolvedUrl)
+        val safeUrl = imageUrlPolicy.sanitize(resolvedUrl)
         if (resolvedUrl.isNotBlank() && safeUrl.isBlank()) {
             Log.w(
                 PRICE_IMAGE_LOG_TAG,
-                "Price image resolution was rejected by the platform URL policy: " +
+                "Price image resolution was rejected by the JianDaoYun URL policy: " +
                     "forceRefresh=$forceRefresh"
             )
         }

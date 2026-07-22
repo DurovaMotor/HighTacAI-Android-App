@@ -1,29 +1,15 @@
 package com.example.deepchatdemo.price
 
 import android.content.Context
-import com.example.deepchatdemo.platform.config.SharedPreferencesPlatformConfigStore
-import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
 class PriceLookupCacheStore internal constructor(
-    private val cacheFile: File,
-    private val imageUrlResolver: PlatformImageUrlResolver? = null
+    private val cacheFile: File
 ) {
     constructor(context: Context) : this(
-        context = context,
-        imageUrlResolver = PlatformImageUrlResolver(
-            SharedPreferencesPlatformConfigStore(context.applicationContext)
-        )
-    )
-
-    internal constructor(
-        context: Context,
-        imageUrlResolver: PlatformImageUrlResolver
-    ) : this(
-        cacheFile = File(context.applicationContext.filesDir, CACHE_FILE_NAME),
-        imageUrlResolver = imageUrlResolver
+        cacheFile = File(context.applicationContext.filesDir, CACHE_FILE_NAME)
     )
 
     fun load(entryId: String): PriceLookupCachedSnapshot? {

@@ -1,8 +1,8 @@
 package com.example.deepchatdemo.price
 
-import com.example.deepchatdemo.platform.network.PlatformMobileApiResponse
-import com.example.deepchatdemo.platform.network.PlatformMobileApiRoute
-import com.example.deepchatdemo.platform.network.PlatformMobileApiTransport
+import com.example.deepchatdemo.cloud.DirectCloudResponse
+import com.example.deepchatdemo.cloud.JianDaoYunApiRoute
+import com.example.deepchatdemo.cloud.JianDaoYunTransport
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
@@ -125,11 +125,9 @@ class PriceLookupRepositoryImageTest {
     }
 }
 
-private object UnusedPriceTransport : PlatformMobileApiTransport {
-    override fun hasApprovedDeviceToken(): Boolean = true
-
+private object UnusedPriceTransport : JianDaoYunTransport {
     override fun postJson(
-        route: PlatformMobileApiRoute,
+        route: JianDaoYunApiRoute,
         jsonBody: String
-    ): PlatformMobileApiResponse = error("Unexpected transport request: $route")
+    ): DirectCloudResponse = error("Unexpected transport request: $route")
 }

@@ -5,10 +5,9 @@ import android.util.Log
 import com.example.deepchatdemo.catalog.PartItem
 import com.example.deepchatdemo.catalog.ScoredPartItem
 import com.example.deepchatdemo.catalog.SearchPlan
+import com.example.deepchatdemo.cloud.OpenAiRelayTransport
 import com.example.deepchatdemo.config.ApiConfig
 import com.example.deepchatdemo.config.ReasoningEffort
-import com.example.deepchatdemo.platform.network.PlatformMobileApiRoute
-import com.example.deepchatdemo.platform.network.PlatformMobileApiTransport
 import java.io.InterruptedIOException
 import java.io.IOException
 import java.math.BigDecimal
@@ -20,11 +19,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class OpenAiResponsesApi(
-    private val transport: PlatformMobileApiTransport
+    private val transport: OpenAiRelayTransport
 ) {
-    val hasApprovedDeviceToken: Boolean
-        get() = transport.hasApprovedDeviceToken()
-
     suspend fun sendChat(
         messages: List<ChatMessage>,
         latestImageDataUrl: String? = null,
@@ -126,10 +122,7 @@ class OpenAiResponsesApi(
 
     private fun executeSingleRequest(requestJson: JSONObject): String {
         val callStartedAt = SystemClock.elapsedRealtime()
-        val response = transport.postJson(
-            route = PlatformMobileApiRoute.OPENAI_RESPONSES,
-            jsonBody = requestJson.toString()
-        )
+        val response = transport.postResponses(requestJson.toString())
         Log.d(
             TAG,
             "HTTP response: statusCode=${response.statusCode}, elapsedMs=${callStartedAt.elapsedMs()}"

@@ -35,7 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.ImageLoader
-import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
+import com.example.deepchatdemo.cloud.JianDaoYunImageUrlPolicy
 import com.example.deepchatdemo.price.PriceLookupResult
 
 internal data class PriceDetailRow(
@@ -49,8 +49,8 @@ internal data class PriceDetailSection(
 )
 
 /**
- * Keeps the detail contract independent from Compose so field ordering and raw-field handling can
- * be unit tested. The first section mirrors the mini program; the second preserves source labels.
+ * Keeps the visible detail contract independent from Compose so field ordering can be unit tested.
+ * Raw source fields remain available in the cached model but are intentionally not rendered.
  */
 internal fun buildPriceDetailSections(item: PriceLookupResult): List<PriceDetailSection> {
     val primaryRows = listOf(
@@ -76,24 +76,14 @@ internal fun buildPriceDetailSections(item: PriceLookupResult): List<PriceDetail
         PriceDetailRow(label = label, value = displayOrNoRecord(value))
     }
 
-    return buildList {
-        add(PriceDetailSection(title = "配件详细信息", rows = primaryRows))
-        item.rawDetails
-            .mapNotNull { (label, value) ->
-                label.trim().takeIf { it.isNotBlank() }?.let { safeLabel ->
-                    PriceDetailRow(safeLabel, displayOrNoRecord(value.trim()))
-                }
-            }
-            .takeIf { it.isNotEmpty() }
-            ?.let { add(PriceDetailSection(title = "原始详细字段", rows = it)) }
-    }
+    return listOf(PriceDetailSection(title = "配件详细信息", rows = primaryRows))
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PriceResultDetailSheet(
     item: PriceLookupResult,
-    imageUrlResolver: PlatformImageUrlResolver,
+    imageUrlPolicy: JianDaoYunImageUrlPolicy,
     imageLoader: ImageLoader,
     resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String,
     onDismissRequest: () -> Unit
@@ -125,7 +115,7 @@ internal fun PriceResultDetailSheet(
                 Spacer(Modifier.height(14.dp))
                 DetailHero(
                     item = item,
-                    imageUrlResolver = imageUrlResolver,
+                    imageUrlPolicy = imageUrlPolicy,
                     imageLoader = imageLoader,
                     resolveImageUrl = resolveImageUrl
                 )
@@ -190,7 +180,7 @@ private fun DetailHeader(
 @Composable
 private fun DetailHero(
     item: PriceLookupResult,
-    imageUrlResolver: PlatformImageUrlResolver,
+    imageUrlPolicy: JianDaoYunImageUrlPolicy,
     imageLoader: ImageLoader,
     resolveImageUrl: suspend (PriceLookupResult, Boolean) -> String
 ) {
@@ -207,7 +197,7 @@ private fun DetailHero(
         ) {
             ProductImage(
                 item = item,
-                imageUrlResolver = imageUrlResolver,
+                imageUrlPolicy = imageUrlPolicy,
                 imageLoader = imageLoader,
                 resolveImageUrl = resolveImageUrl,
                 contentDescription = item.nameCn.ifBlank { item.nameEn }.ifBlank { "产品图片" },

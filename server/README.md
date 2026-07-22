@@ -59,11 +59,16 @@ site LAN or an authenticated VPN. Do not expose the API port directly to the
 public Internet. Network firewalls and VPN access control are the security
 boundary for these tokenless Android capabilities.
 
-## Mobile third-party proxies
+## Deprecated mobile third-party proxies
 
-Android devices call third-party services through the platform without a device
-token. Configure the upstream integrations only in
-the protected runtime environment:
+The `/mobile/openai/*`, `/mobile/jiandaoyun/*`, and related media routes remain
+available only so a legacy APK can be restored during rollback. They are marked
+deprecated in OpenAPI. Current Android builds never call these routes: advisor
+traffic goes directly to the configured OpenAI relay and price refresh goes
+directly to JianDaoYun. Only light-finding data and commands use this Windows
+backend in the current App.
+
+Legacy proxy configuration remains in the protected runtime environment:
 
 - `HIGHTAC_OPENAI_API_KEY`, `HIGHTAC_OPENAI_BASE_URL`, and
   `HIGHTAC_OPENAI_MODEL`
@@ -75,7 +80,9 @@ unconfigured integration return a provider-specific `503` response. The OpenAI
 proxy fixes the model server-side and disables streaming. The JianDaoYun proxy
 accepts only entry list, widget list, and data list operations; it overwrites
 client-supplied application and form identifiers. API keys are excluded from
-settings serialization and must never be stored in the Android package or Git.
+settings serialization and must never enter Git or server logs. The current
+Android build obtains its separately authorized copy through the local-only
+import process documented in the repository README.
 
 ## Tests
 

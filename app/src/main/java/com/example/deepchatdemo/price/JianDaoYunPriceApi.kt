@@ -2,22 +2,22 @@ package com.example.deepchatdemo.price
 
 import android.os.SystemClock
 import android.util.Log
-import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
-import com.example.deepchatdemo.platform.network.PlatformMobileApiRoute
-import com.example.deepchatdemo.platform.network.PlatformMobileApiTransport
-import com.example.deepchatdemo.platform.network.PlatformMobileAuthorizationException
+import com.example.deepchatdemo.cloud.JianDaoYunApiRoute
+import com.example.deepchatdemo.cloud.JianDaoYunImageUrlPolicy
+import com.example.deepchatdemo.cloud.JianDaoYunTransport
 import java.io.IOException
 import java.text.Normalizer
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
 class JianDaoYunPriceApi(
-    private val transport: PlatformMobileApiTransport,
+    private val transport: JianDaoYunTransport,
     private val cacheStore: PriceLookupCacheStore? = null,
-    private val imageUrlResolver: PlatformImageUrlResolver? = null
+    private val imageUrlPolicy: JianDaoYunImageUrlPolicy? = null
 ) {
     private val metadataLock = Any()
 
@@ -81,6 +81,7 @@ class JianDaoYunPriceApi(
                 onProgress = onProgress
             )
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             diskSnapshot?.takeIf { it.results.isNotEmpty() }?.let { snapshot ->
                 Log.w(TAG, "JianDaoYun live refresh failed, falling back to stale cache: ${error.javaClass.simpleName}")
                 return@withContext snapshot.toSearchResult(
@@ -102,9 +103,8 @@ class JianDaoYunPriceApi(
             fetchedRowCount = rowsResult.fetchedRowCount,
             createdAtEpochMs = System.currentTimeMillis()
         )
+        cacheStore?.save(snapshot)
         cachedSnapshot = snapshot
-        runCatching { cacheStore?.save(snapshot) }
-            .onFailure { error -> Log.w(TAG, "JianDaoYun cache save failed: ${error.javaClass.simpleName}") }
 
         Log.d(
             TAG,
@@ -156,7 +156,7 @@ class JianDaoYunPriceApi(
                     .put("rel", "and")
                     .put("cond", JSONArray().put(filterCondition))
             )
-        val responseJson = postJson(PlatformMobileApiRoute.JIANDAOYUN_DATA_LIST, requestJson)
+        val responseJson = postJson(JianDaoYunApiRoute.DATA_LIST, requestJson)
         val data = responseJson.optJSONArray("data")
             ?: responseJson.optJSONArray("data_list")
             ?: JSONArray()
@@ -173,7 +173,7 @@ class JianDaoYunPriceApi(
                 add(
                     ImageLookupCandidate(
                         id = recordId,
-                        imageUrl = imageUrlResolver
+                        imageUrl = imageUrlPolicy
                             ?.sanitize(values.imageUrlFor(imageWidgets))
                             .orEmpty()
                     )
@@ -198,7 +198,7 @@ class JianDaoYunPriceApi(
         val requestJson = JSONObject()
             .put("limit", 100)
             .put("skip", 0)
-        val responseJson = postJson(PlatformMobileApiRoute.JIANDAOYUN_ENTRY_LIST, requestJson)
+        val responseJson = postJson(JianDaoYunApiRoute.ENTRY_LIST, requestJson)
         val formsJson = responseJson.optJSONArray("forms") ?: JSONArray()
         val entries = buildList {
             for (index in 0 until formsJson.length()) {
@@ -228,7 +228,7 @@ class JianDaoYunPriceApi(
 
         val requestJson = JSONObject()
             .put("entry_id", entryId)
-        val responseJson = postJson(PlatformMobileApiRoute.JIANDAOYUN_WIDGET_LIST, requestJson)
+        val responseJson = postJson(JianDaoYunApiRoute.WIDGET_LIST, requestJson)
         val widgetsJson = responseJson.optJSONArray("widgets") ?: JSONArray()
         val widgets = buildList {
             for (index in 0 until widgetsJson.length()) {
@@ -278,7 +278,7 @@ class JianDaoYunPriceApi(
                 requestJson.put("fields", JSONArray(requestFields))
             }
 
-            val responseJson = postJson(PlatformMobileApiRoute.JIANDAOYUN_DATA_LIST, requestJson)
+            val responseJson = postJson(JianDaoYunApiRoute.DATA_LIST, requestJson)
             val data = responseJson.optJSONArray("data")
                 ?: responseJson.optJSONArray("data_list")
                 ?: JSONArray()
@@ -326,7 +326,7 @@ class JianDaoYunPriceApi(
         )
     }
 
-    private fun postJson(route: PlatformMobileApiRoute, json: JSONObject): JSONObject {
+    private fun postJson(route: JianDaoYunApiRoute, json: JSONObject): JSONObject {
         var lastError: IOException? = null
         for (attempt in 1..MAX_REQUEST_ATTEMPTS) {
             try {
@@ -351,7 +351,7 @@ class JianDaoYunPriceApi(
     }
 
     private fun executePostJson(
-        route: PlatformMobileApiRoute,
+        route: JianDaoYunApiRoute,
         json: JSONObject
     ): JSONObject {
         val response = transport.postJson(route, json.toString())
@@ -376,7 +376,6 @@ class JianDaoYunPriceApi(
     private fun IOException.isTransientRequestError(): Boolean {
         return when (this) {
             is JianDaoYunHttpException -> isTransient
-            is PlatformMobileAuthorizationException -> false
             else -> true
         }
     }
@@ -652,7 +651,7 @@ class JianDaoYunPriceApi(
                 .ifBlank { fieldValues[column.key].orEmpty() }
             column.key to searchValue
         }
-        val imageUrl = imageUrlResolver
+        val imageUrl = imageUrlPolicy
             ?.sanitize(data.imageUrlFor(fieldMap.widgetsFor(PriceLookupColumns.IMAGE)))
             .orEmpty()
         val rawDetails = PriceLookupColumns.internalColumns.mapNotNull { column ->
@@ -740,7 +739,7 @@ class JianDaoYunPriceApi(
     }
 
     private fun PriceLookupResult.withSafeImageUrl(): PriceLookupResult {
-        val safeImageUrl = imageUrlResolver?.sanitize(imageUrl).orEmpty()
+        val safeImageUrl = imageUrlPolicy?.sanitize(imageUrl).orEmpty()
         return if (safeImageUrl == imageUrl) this else copy(imageUrl = safeImageUrl)
     }
 
@@ -840,10 +839,7 @@ class JianDaoYunPriceApi(
             null, JSONObject.NULL -> ""
             is String -> trim().takeIf { candidate ->
                 candidate.startsWith("http://", ignoreCase = true) ||
-                    candidate.startsWith("https://", ignoreCase = true) ||
-                    candidate.startsWith("/") ||
-                    candidate.startsWith("api/v1/mobile/media/") ||
-                    candidate.startsWith("./api/v1/mobile/media/")
+                    candidate.startsWith("https://", ignoreCase = true)
             }.orEmpty()
             is JSONArray -> {
                 for (index in 0 until length()) {

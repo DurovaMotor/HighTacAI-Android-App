@@ -3,10 +3,11 @@ package com.example.deepchatdemo.price
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
-import com.example.deepchatdemo.platform.config.SharedPreferencesPlatformConfigStore
-import com.example.deepchatdemo.platform.network.AndroidPlatformMobileApiTransportFactory
-import com.example.deepchatdemo.platform.network.PlatformImageUrlResolver
+import com.example.deepchatdemo.HighTacApplication
+import com.example.deepchatdemo.cloud.JianDaoYunImageUrlPolicy
+import com.example.deepchatdemo.cloud.OkHttpJianDaoYunTransport
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -24,6 +25,7 @@ class PriceLookupRepository(
     private val elapsedRealtimeMs: () -> Long = SystemClock::elapsedRealtime
 ) {
     private val imageRequestSemaphore = Semaphore(MAX_CONCURRENT_IMAGE_REQUESTS)
+    private val liveRefreshMutex = Mutex()
     private val imageStateMutex = Mutex()
     private val imageUrlCache = mutableMapOf<ImageLookupKey, ImageUrlCacheEntry>()
     private val imageRequestsInFlight =
@@ -69,11 +71,18 @@ class PriceLookupRepository(
                 }
             }
 
-            val result = jiandaoYunPriceApi.search(
-                filters = filters,
-                forceRefresh = forceRefresh,
-                onProgress = onProgress
-            )
+            val liveLookup: suspend () -> PriceLookupSearchResult = {
+                jiandaoYunPriceApi.search(
+                    filters = filters,
+                    forceRefresh = forceRefresh,
+                    onProgress = onProgress
+                )
+            }
+            val result = if (forceRefresh) {
+                liveRefreshMutex.withLock { liveLookup() }
+            } else {
+                liveLookup()
+            }
             Log.d(
                 TAG,
                 "Price lookup success: pages=${result.pageCount}, rows=${result.fetchedRowCount}, " +
@@ -82,6 +91,7 @@ class PriceLookupRepository(
             )
             result
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             if (forceRefresh && error.canUseRefreshFallback()) {
                 val fallbackResult = loadRefreshFallback(
                     filters = filters,
@@ -205,16 +215,21 @@ class PriceLookupRepository(
     companion object {
         fun fromContext(context: Context): PriceLookupRepository {
             val appContext = context.applicationContext
-            val imageUrlResolver = PlatformImageUrlResolver(
-                SharedPreferencesPlatformConfigStore(appContext)
-            )
-            val cacheStore = PriceLookupCacheStore(appContext, imageUrlResolver)
-            val transport = AndroidPlatformMobileApiTransportFactory.create(appContext)
+            return (appContext as? HighTacApplication)
+                ?.appServices
+                ?.priceLookupRepository
+                ?: create(appContext)
+        }
+
+        internal fun create(context: Context): PriceLookupRepository {
+            val appContext = context.applicationContext
+            val imageUrlPolicy = JianDaoYunImageUrlPolicy()
+            val cacheStore = PriceLookupCacheStore(appContext)
             return PriceLookupRepository(
                 jiandaoYunPriceApi = JianDaoYunPriceApi(
-                    transport = transport,
+                    transport = OkHttpJianDaoYunTransport.fromBuildConfig(),
                     cacheStore = cacheStore,
-                    imageUrlResolver = imageUrlResolver
+                    imageUrlPolicy = imageUrlPolicy
                 ),
                 cacheStore = cacheStore,
                 seedImporter = PriceLookupSeedImporter(appContext)

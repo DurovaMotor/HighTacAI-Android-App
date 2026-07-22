@@ -2,10 +2,9 @@ package com.example.deepchatdemo.catalog
 
 import android.os.SystemClock
 import android.util.Log
+import com.example.deepchatdemo.cloud.OpenAiRelayTransport
 import com.example.deepchatdemo.config.ApiConfig
 import com.example.deepchatdemo.config.ReasoningEffort
-import com.example.deepchatdemo.platform.network.PlatformMobileApiRoute
-import com.example.deepchatdemo.platform.network.PlatformMobileApiTransport
 import java.io.InterruptedIOException
 import java.io.IOException
 import java.net.ConnectException
@@ -16,7 +15,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class SearchPlanApi(
-    private val transport: PlatformMobileApiTransport
+    private val transport: OpenAiRelayTransport
 ) {
     suspend fun createSearchPlan(
         rawQuery: String,
@@ -75,10 +74,7 @@ class SearchPlanApi(
 
     private fun executeSingleRequest(requestJson: JSONObject): String {
         val callStartedAt = SystemClock.elapsedRealtime()
-        val response = transport.postJson(
-            route = PlatformMobileApiRoute.OPENAI_RESPONSES,
-            jsonBody = requestJson.toString()
-        )
+        val response = transport.postResponses(requestJson.toString())
         Log.d(
             TAG,
             "SearchPlan HTTP response: statusCode=${response.statusCode}, " +
