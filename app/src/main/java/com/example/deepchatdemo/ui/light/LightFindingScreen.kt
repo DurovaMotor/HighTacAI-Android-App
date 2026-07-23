@@ -47,7 +47,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -226,13 +225,9 @@ private fun StatusPanel(
     onToggleSettings: () -> Unit,
     onDisconnect: () -> Unit
 ) {
-    var detailsExpanded by rememberSaveable { mutableStateOf(false) }
+    var detailsExpanded by remember { mutableStateOf(COMPACT_STATUS_DETAILS_EXPANDED_BY_DEFAULT) }
     var actionsExpanded by remember { mutableStateOf(false) }
     val summary = compactLightSystemSummary(uiState)
-
-    LaunchedEffect(uiState.inputMessage) {
-        if (!uiState.inputMessage.isNullOrBlank()) detailsExpanded = true
-    }
 
     LightGlassPanel(
         shape = RoundedCornerShape(18.dp),
@@ -1045,6 +1040,8 @@ internal enum class CompactLightSystemLevel {
     ERROR,
     DISCONNECTED
 }
+
+internal const val COMPACT_STATUS_DETAILS_EXPANDED_BY_DEFAULT = false
 
 internal data class CompactLightSystemSummary(
     val label: String,

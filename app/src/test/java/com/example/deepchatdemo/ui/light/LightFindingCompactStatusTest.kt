@@ -8,9 +8,15 @@ import com.example.deepchatdemo.platform.network.PlatformEventConnectionState
 import java.time.Instant
 import java.util.UUID
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class LightFindingCompactStatusTest {
+    @Test
+    fun statusDetailsAreCollapsedByDefault() {
+        assertFalse(COMPACT_STATUS_DETAILS_EXPANDED_BY_DEFAULT)
+    }
+
     @Test
     fun disconnectedStateUsesTheQuietCompactSummary() {
         assertEquals(
